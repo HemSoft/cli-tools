@@ -1,0 +1,33 @@
+# PowerShell specific
+*.ps1.bak
+*.psm1.bak
+*.psd1.bak
+
+# Windows specific
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# VS Code specific
+.vscode/
+
+# Common backup files
+*~
+*.bak
+*.tmp
+*.swp
+
+# Logs
+*.log
+logs/
+
+# PowerShell module files
+*.psd1
+*.psm1
+*.ps1xml
+
+# PowerShell execution policy files
+*.ps1.execution-policy
+
+# PowerShell history files
+PSReadLine/
