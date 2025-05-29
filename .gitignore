@@ -31,3 +31,15 @@ logs/
 
 # PowerShell history files
 PSReadLine/
+
+# .NET Build artifacts
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+*.deps.json
+*.runtimeconfig.json
+
+# Test files
+test.txt

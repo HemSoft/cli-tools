@@ -2,6 +2,19 @@
 
 A collection of command-line interface tools and scripts for various automation tasks.
 
+## Installed CLI Tools
+
+The following CLI tools are installed and available for use:
+
+### edit
+Microsoft's new open-source command-line text editor for Windows. A modern, lightweight terminal-based editor that provides an intuitive editing experience directly from the command line.
+
+### dive
+A powerful tool for exploring Docker image layers and analyzing their contents. Helps optimize Docker images by showing what's in each layer, identifying wasted space, and discovering ways to shrink image size.
+
+### lazygit
+A simple and intuitive terminal UI for Git commands. Provides a beautiful interface for staging files, viewing diffs, managing branches, and performing Git operations without memorizing complex command syntax.
+
 ## Scripts
 
 ### cm.ps1
