@@ -12,7 +12,7 @@ public class Program
         try
         {
             // Set up dependency injection
-            var serviceProvider = ConfigureServices();
+            using var serviceProvider = ConfigureServices();
 
             // Get the menu handler from the service provider
             var menuHandler = serviceProvider.GetRequiredService<MenuHandler>();

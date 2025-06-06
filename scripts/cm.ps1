@@ -1,4 +1,4 @@
-# get-contract-commands.ps1
+# cm.ps1
 
 # Define parameters with default values that can be overridden from configuration
 param(
