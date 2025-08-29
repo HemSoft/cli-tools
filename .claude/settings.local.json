@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.HemSoft.CLITools.Console.exe)",
+      "Bash(./HemSoft.CLITools.Console.exe)",
+      "Bash(powershell:*)",
+      "Read(C:\\Users\\franz\\OneDrive\\Documents\\WindowsPowerShell/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

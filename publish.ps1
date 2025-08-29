@@ -23,11 +23,11 @@ Set-Location $projectPath
 try {
     # Clean any previous builds
     Write-Host "Cleaning previous builds..." -ForegroundColor Yellow
-    dotnet clean -c $Configuration
-
-    # Publish the application
+    dotnet clean -c $Configuration    # Publish the application
     Write-Host "Publishing application..." -ForegroundColor Yellow
-    dotnet publish -c $Configuration -r $Runtime --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o $OutputPath    if ($LASTEXITCODE -eq 0) {
+    dotnet publish -c $Configuration -r $Runtime --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o $OutputPath
+
+    if ($LASTEXITCODE -eq 0) {
         Write-Host "`n✅ Successfully published!" -ForegroundColor Green
         $exePath = Resolve-Path "$OutputPath\HemSoft.CLITools.Console.exe"
         Write-Host "Self-contained executable location:" -ForegroundColor Green
