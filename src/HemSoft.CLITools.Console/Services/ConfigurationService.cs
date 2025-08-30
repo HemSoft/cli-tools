@@ -115,8 +115,34 @@ public class ConfigurationService : IDisposable
                 continue;
             }
 
-            // Extract the script filename from the resource name
-            var scriptFileName = Path.GetFileName(resourceName);
+            // Derive the expected filename (e.g., update-n8n.ps1) from resource name
+            // Prefer segment after ".scripts." if present, otherwise take the substring after the
+            // last dot before the extension. This handles typical resource names like:
+            //   HemSoft.CLITools.Console.scripts.update-n8n.ps1  => update-n8n.ps1
+            //   HemSoft.CLITools.Console.update-openwebui.ps1    => update-openwebui.ps1
+            string scriptFileName;
+            const string scriptsMarker = ".scripts.";
+            int markerIndex = resourceName.IndexOf(scriptsMarker, StringComparison.OrdinalIgnoreCase);
+            if (markerIndex >= 0)
+            {
+                scriptFileName = resourceName[(markerIndex + scriptsMarker.Length)..];
+            }
+            else
+            {
+                int extIndex = resourceName.LastIndexOf(".ps1", StringComparison.OrdinalIgnoreCase);
+                if (extIndex > 0)
+                {
+                    int prevDot = resourceName.LastIndexOf('.', extIndex - 1);
+                    scriptFileName = prevDot >= 0
+                        ? resourceName[(prevDot + 1)..]
+                        : resourceName; // Fallback: use full name (unlikely)
+                }
+                else
+                {
+                    scriptFileName = resourceName; // Fallback
+                }
+            }
+
             var outputPath = Path.Combine(_tempScriptsDirectory, scriptFileName);
 
             using var fileStream = File.Create(outputPath);

@@ -10,14 +10,16 @@ using Spectre.Console;
 public class MenuHandler
 {
     private readonly CliToolService _cliToolService;
+    private readonly ConfigurationService _configurationService;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MenuHandler"/> class.
     /// </summary>
     /// <param name="cliToolService">The CLI tool service</param>
-    public MenuHandler(CliToolService cliToolService)
+    public MenuHandler(CliToolService cliToolService, ConfigurationService configurationService)
     {
         _cliToolService = cliToolService;
+        _configurationService = configurationService;
     }
 
     /// <summary>
@@ -62,13 +64,20 @@ public class MenuHandler
     /// <summary>
     /// Displays the header
     /// </summary>
-    private static void DisplayHeader()
+    private void DisplayHeader()
     {
+        var appName = _configurationService.AppSettings.ApplicationName;
+        var appVersion = _configurationService.AppSettings.ApplicationVersion;
+
         AnsiConsole.Write(
-            new FigletText("HemSoft CLI Tools")
+            new FigletText(appName)
                 .Centered()
                 .Color(Color.Blue));
 
+        if (!string.IsNullOrWhiteSpace(appVersion))
+        {
+            AnsiConsole.MarkupLine($"[grey]Version: {Markup.Escape(appVersion)}[/]");
+        }
         AnsiConsole.WriteLine();
     }
 
@@ -101,6 +110,9 @@ public class MenuHandler
             .HighlightStyle(new Style(Color.Blue))
             .MoreChoicesText("[grey](Move up and down to reveal more tools)[/]")
             .AddChoices(choices);
+
+        // Enable wrap-around so Up from top goes to bottom and Down from bottom goes to top
+        prompt.WrapAround = true;
 
         // Get the selected display string and map it back to the tool name
         string selectedDisplay = AnsiConsole.Prompt(prompt);
