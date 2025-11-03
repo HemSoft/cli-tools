@@ -46,17 +46,22 @@ public class MenuHandler
                 var selectedTool = _cliToolService.GetCliToolByName(selection);
                 if (selectedTool != null)
                 {
-                    // Run the tool directly without confirmation
-                    AnsiConsole.Status()
-                        .Start($"Running {selectedTool.Name}...", ctx =>
-                        {
-                            _cliToolService.RunCliTool(selectedTool);
-                        });
-                }
+                    // Clear the screen before running interactive tools
+                    if (selectedTool.IsInteractive)
+                    {
+                        AnsiConsole.Clear();
+                    }
 
-                AnsiConsole.WriteLine();
-                AnsiConsole.WriteLine("Press any key to return to the main menu...");
-                System.Console.ReadKey(true);
+                    _cliToolService.RunCliTool(selectedTool);
+
+                    // Only prompt for non-interactive tools
+                    if (!selectedTool.IsInteractive)
+                    {
+                        AnsiConsole.WriteLine();
+                        AnsiConsole.WriteLine("Press any key to return to the main menu...");
+                        System.Console.ReadKey(true);
+                    }
+                }
             }
         }
     }

@@ -37,7 +37,9 @@ public class CliToolService
                 Name = config.Name,
                 Description = config.Description,
                 Command = config.Command,
-                Version = config.Version
+                Version = config.Version,
+                IsInteractive = config.IsInteractive,
+                RuntimeArguments = config.RuntimeArguments
             });
         }
     }
@@ -65,8 +67,41 @@ public class CliToolService
     {
         bool success = false;
 
-        AnsiConsole.MarkupLine($"Executing command: [green]{cliTool.Command}[/]");
-        AnsiConsole.WriteLine();
+        // Prompt for runtime arguments if needed
+        Dictionary<string, string> runtimeArgs = new Dictionary<string, string>();
+        if (cliTool.RuntimeArguments != null && cliTool.RuntimeArguments.Count > 0)
+        {
+            foreach (var arg in cliTool.RuntimeArguments)
+            {
+                string value;
+                if (!string.IsNullOrEmpty(arg.DefaultValue))
+                {
+                    value = AnsiConsole.Ask<string>($"[yellow]{arg.Prompt}[/]", arg.DefaultValue);
+                }
+                else if (arg.Required)
+                {
+                    value = AnsiConsole.Ask<string>($"[yellow]{arg.Prompt}[/]");
+                }
+                else
+                {
+                    value = AnsiConsole.Prompt(
+                        new TextPrompt<string>($"[yellow]{arg.Prompt}[/]")
+                            .AllowEmpty());
+                }
+
+                if (!string.IsNullOrEmpty(value))
+                {
+                    runtimeArgs[arg.Name] = value;
+                }
+            }
+        }
+
+        // Skip console output for interactive tools
+        if (!cliTool.IsInteractive)
+        {
+            AnsiConsole.MarkupLine($"Executing command: [green]{cliTool.Command}[/]");
+            AnsiConsole.WriteLine();
+        }
 
         try
         {
@@ -77,10 +112,8 @@ public class CliToolService
             string fileName;
             string arguments;
 
-            // Check if it's an interactive tool first
-            var interactiveTools = new[] { "edit", "dive", "lazygit" };
-            bool isInteractiveTool = !cliTool.Command.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase) &&
-                                   interactiveTools.Contains(cliTool.Command.ToLowerInvariant());
+            // Check if it's an interactive tool based on configuration
+            bool isInteractiveTool = cliTool.IsInteractive;
 
             // Determine if this is a PowerShell script or direct executable
             if (cliTool.Command.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase))
@@ -109,83 +142,57 @@ public class CliToolService
             else
             {
                 // Direct executable
-                if (isInteractiveTool)
-                {
-                    // For interactive tools, launch in a new terminal window
-                    AnsiConsole.MarkupLine("[yellow]Launching interactive tool in a new terminal window...[/]");
-                    AnsiConsole.MarkupLine("[grey]The tool will open in a separate window. Close it when you're done.[/]");
+                fileName = cliTool.Command;
 
-                    fileName = "cmd.exe";
-                    arguments = $"/c start cmd /k \"{cliTool.Command}\"";
-                }
-                else
+                // Build arguments for direct executables
+                StringBuilder argumentsBuilder = new StringBuilder();
+                if (toolConfig?.Parameters != null && toolConfig.Parameters.Count > 0)
                 {
-                    // Non-interactive executable
-                    fileName = cliTool.Command;
-
-                    // Build arguments for direct executables
-                    StringBuilder argumentsBuilder = new StringBuilder();
-                    if (toolConfig?.Parameters != null && toolConfig.Parameters.Count > 0)
+                    foreach (var param in toolConfig.Parameters)
                     {
-                        foreach (var param in toolConfig.Parameters)
-                        {
-                            argumentsBuilder.Append($" --{param.Key} \"{param.Value}\"");
-                        }
+                        argumentsBuilder.Append($" --{param.Key} \"{param.Value}\"");
                     }
-                    arguments = argumentsBuilder.ToString().Trim();
                 }
+
+                // Add runtime arguments
+                if (runtimeArgs.Count > 0)
+                {
+                    foreach (var arg in runtimeArgs)
+                    {
+                        argumentsBuilder.Append($" {arg.Value}");
+                    }
+                }
+
+                arguments = argumentsBuilder.ToString().Trim();
             }
 
             // Create a new process
             using var process = new Process();
 
+            // All tools run in the same console without redirecting streams
             process.StartInfo = new ProcessStartInfo
             {
                 FileName = fileName,
                 Arguments = arguments,
-                UseShellExecute = isInteractiveTool,
-                RedirectStandardOutput = !isInteractiveTool,
-                RedirectStandardError = !isInteractiveTool,
-                CreateNoWindow = !isInteractiveTool
+                UseShellExecute = false,
+                RedirectStandardOutput = false,
+                RedirectStandardError = false,
+                RedirectStandardInput = false,
+                CreateNoWindow = false
             };
-
-            // Set up event handlers only for non-interactive tools
-            if (!isInteractiveTool)
-            {
-                process.OutputDataReceived += (sender, e) =>
-                {
-                    if (!string.IsNullOrEmpty(e.Data))
-                    {
-                        // Escape any markup characters in the output
-                        string escapedData = Markup.Escape(e.Data);
-                        AnsiConsole.MarkupLine($"[green]{escapedData}[/]");
-                    }
-                };
-
-                process.ErrorDataReceived += (sender, e) =>
-                {
-                    if (!string.IsNullOrEmpty(e.Data))
-                    {
-                        // Escape any markup characters in the output
-                        string escapedData = Markup.Escape(e.Data);
-                        AnsiConsole.MarkupLine($"[red]{escapedData}[/]");
-                    }
-                };
-            }
 
             // Start the process
             process.Start();
 
+            // Wait for the process to exit
+            process.WaitForExit();
+
+            // Check the exit code
+            success = process.ExitCode == 0;
+
+            // Skip success/failure messages for interactive tools
             if (!isInteractiveTool)
             {
-                process.BeginOutputReadLine();
-                process.BeginErrorReadLine();
-
-                // Wait for the process to exit
-                process.WaitForExit();
-
-                // Check the exit code
-                success = process.ExitCode == 0;
                 if (success)
                 {
                     AnsiConsole.WriteLine();
@@ -197,13 +204,6 @@ public class CliToolService
                     AnsiConsole.MarkupLine($"[red]Tool execution failed (exit code: {process.ExitCode})[/]");
                     AnsiConsole.MarkupLine("[yellow]Check the output above for more details about the error.[/]");
                 }
-            }
-            else
-            {
-                // For interactive tools, just indicate that it was launched
-                AnsiConsole.WriteLine();
-                AnsiConsole.MarkupLine("[green]Interactive tool launched successfully![/]");
-                success = true;
             }
         }
         catch (Exception ex)

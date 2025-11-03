@@ -13,9 +13,11 @@ public class ConfigurationService : IDisposable
     private readonly IConfiguration _configuration;
     private readonly AppSettings _appSettings;
     private readonly string _tempScriptsDirectory;
-    private readonly bool _isEmbeddedMode;    /// <summary>
-                                              /// Initializes a new instance of the <see cref="ConfigurationService"/> class.
-                                              /// </summary>
+    private readonly bool _isEmbeddedMode;
+    private readonly string _resolvedScriptsDirectory;
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ConfigurationService"/> class.
+    /// </summary>
     public ConfigurationService()
     {
         // Get the base directory of the application
@@ -37,8 +39,15 @@ public class ConfigurationService : IDisposable
             _appSettings.CliTools = new List<CliToolConfig>();
         }
 
-        // Check if we're running as a single-file/embedded deployment
-        _isEmbeddedMode = IsRunningAsEmbeddedDeployment();
+        // Determine scripts directory: prefer physical 'scripts' folder next to app
+        // This supports both 'dotnet run' (bin/.../) and published output (publish/ or F:\Tools)
+        _resolvedScriptsDirectory = Path.GetFullPath(Path.Combine(basePath, _appSettings.ScriptsDirectory));
+
+        bool hasPhysicalScripts = Directory.Exists(_resolvedScriptsDirectory) &&
+                      Directory.EnumerateFiles(_resolvedScriptsDirectory, "*.ps1").Any();
+
+        // Check if we're running as a single-file/embedded deployment requiring extraction
+        _isEmbeddedMode = !hasPhysicalScripts && IsRunningAsEmbeddedDeployment();
 
         if (_isEmbeddedMode)
         {
@@ -82,6 +91,14 @@ public class ConfigurationService : IDisposable
             return Path.Combine(_tempScriptsDirectory, command);
         }
 
+        // Prefer resolved scripts directory next to the app
+        string candidate = Path.Combine(_resolvedScriptsDirectory, command);
+        if (File.Exists(candidate))
+        {
+            return candidate;
+        }
+
+        // Fallback to AppSettings.ScriptsDirectory relative to current working dir (legacy behavior)
         return Path.Combine(_appSettings.ScriptsDirectory, command);
     }
 

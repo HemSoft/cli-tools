@@ -33,4 +33,13 @@
     <EmbeddedResource Include="..\..\scripts\*.ps1" />
   </ItemGroup>
 
+  <!-- Copy scripts to output/publish under 'scripts' folder for non-embedded usage -->
+  <ItemGroup>
+    <Content Include="..\..\scripts\*.ps1">
+      <Link>scripts\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

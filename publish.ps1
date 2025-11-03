@@ -26,8 +26,28 @@ try {
 
     $destDir = 'F:\Tools'
     $destExe = Join-Path $destDir 'HemSoftCLITools.exe'
+    $destScriptsDir = Join-Path $destDir 'Scripts'
     New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $destScriptsDir -Force | Out-Null
+
+    # Copy main executable
     Copy-Item -Path $srcExe -Destination $destExe -Force
+
+    # Copy scripts folder from publish output if present
+    $publishScriptsDir = Join-Path $publishDir 'scripts'
+    if (Test-Path $publishScriptsDir) {
+        Copy-Item -Path (Join-Path $publishScriptsDir '*') -Destination $destScriptsDir -Recurse -Force
+    }
+
+    # Copy configuration files to destination root
+    $srcAppSettings = Join-Path $publishDir 'appsettings.json'
+    if (Test-Path $srcAppSettings) {
+        Copy-Item -Path $srcAppSettings -Destination (Join-Path $destDir 'appsettings.json') -Force
+    }
+    $srcUserSettings = Join-Path $publishDir 'appsettings.user.json'
+    if (Test-Path $srcUserSettings) {
+        Copy-Item -Path $srcUserSettings -Destination (Join-Path $destDir 'appsettings.user.json') -Force
+    }
 
     Write-Host "Done -> $destExe" -ForegroundColor Green
 }
