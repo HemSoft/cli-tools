@@ -59,6 +59,89 @@ public class CliToolService
         _cliTools.FirstOrDefault(t => t.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
+    /// Gets Docker images available on the system
+    /// </summary>
+    /// <returns>A list of Docker image names</returns>
+    private List<string> GetDockerImages()
+    {
+        var images = new List<string>();
+        try
+        {
+            using var process = new Process();
+            process.StartInfo = new ProcessStartInfo
+            {
+                FileName = "docker",
+                Arguments = "images --format \"table {{.Repository}}:{{.Tag}}\\t{{.Size}}\"",
+                UseShellExecute = true,
+                CreateNoWindow = true
+            };
+
+            // Use UseShellExecute = true for proper command formatting
+            process.Start();
+            process.WaitForExit();
+
+            // Alternatively, use JSON output which is more reliable
+            using var jsonProcess = new Process();
+            jsonProcess.StartInfo = new ProcessStartInfo
+            {
+                FileName = "docker",
+                Arguments = "images --format json",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            jsonProcess.Start();
+            string jsonOutput = jsonProcess.StandardOutput.ReadToEnd();
+            jsonProcess.WaitForExit();
+
+            if (jsonProcess.ExitCode == 0 && !string.IsNullOrWhiteSpace(jsonOutput))
+            {
+                // Parse JSON output
+                var lines = jsonOutput.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (var line in lines)
+                {
+                    try
+                    {
+                        // Simple JSON parsing to extract Repository and Tag
+                        if (line.Contains("\"Repository\"") && line.Contains("\"Tag\""))
+                        {
+                            var repoMatch = System.Text.RegularExpressions.Regex.Match(line, @"""Repository""\s*:\s*""([^""]*)""");
+                            var tagMatch = System.Text.RegularExpressions.Regex.Match(line, @"""Tag""\s*:\s*""([^""]*)""");
+
+                            if (repoMatch.Success && tagMatch.Success)
+                            {
+                                string repo = repoMatch.Groups[1].Value;
+                                string tag = tagMatch.Groups[1].Value;
+
+                                if (!repo.Contains("<none>") && !tag.Contains("<none>") && !string.IsNullOrWhiteSpace(repo))
+                                {
+                                    string imageName = $"{repo}:{tag}";
+                                    if (!images.Contains(imageName))
+                                    {
+                                        images.Add(imageName);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Skip malformed lines
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[yellow]Warning: Could not fetch Docker images: {ex.Message}[/]");
+        }
+
+        return images;
+    }
+
+    /// <summary>
     /// Runs a CLI tool and displays its output
     /// </summary>
     /// <param name="cliTool">The CLI tool to run</param>
@@ -74,7 +157,26 @@ public class CliToolService
             foreach (var arg in cliTool.RuntimeArguments)
             {
                 string value;
-                if (!string.IsNullOrEmpty(arg.DefaultValue))
+
+                // Check if this argument has a data source for dynamic selection
+                if (arg.Name == "image" && cliTool.Name == "Docker Image Explorer")
+                {
+                    // Fetch Docker images and show selection prompt
+                    var dockerImages = GetDockerImages();
+                    if (dockerImages.Count > 0)
+                    {
+                        value = AnsiConsole.Prompt(
+                            new SelectionPrompt<string>()
+                                .Title($"[yellow]{arg.Prompt}[/]")
+                                .AddChoices(dockerImages));
+                    }
+                    else
+                    {
+                        AnsiConsole.MarkupLine("[red]No Docker images found. Please enter image name manually:[/]");
+                        value = AnsiConsole.Ask<string>($"[yellow]{arg.Prompt}[/]");
+                    }
+                }
+                else if (!string.IsNullOrEmpty(arg.DefaultValue))
                 {
                     value = AnsiConsole.Ask<string>($"[yellow]{arg.Prompt}[/]", arg.DefaultValue);
                 }
@@ -118,25 +220,23 @@ public class CliToolService
             // Determine if this is a PowerShell script or direct executable
             if (cliTool.Command.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase))
             {
-                // PowerShell script execution
+                // PowerShell script execution - run in the current console window
                 string scriptPath = _configurationService.GetScriptPath(cliTool.Command);
 
                 // Build arguments string with parameters if available
                 StringBuilder argumentsBuilder = new StringBuilder();
-                argumentsBuilder.Append($"-ExecutionPolicy Bypass -Command \"& '{scriptPath}'");
+                argumentsBuilder.Append($"-ExecutionPolicy Bypass -NoProfile -File \"{scriptPath}\"");
 
                 if (toolConfig?.Parameters != null && toolConfig.Parameters.Count > 0)
                 {
                     // Add parameters as PowerShell parameters
                     foreach (var param in toolConfig.Parameters)
                     {
-                        // Format the parameter correctly for PowerShell
-                        argumentsBuilder.Append($" -\"{param.Key}\" '\"{param.Value}\"'");
+                        argumentsBuilder.Append($" -{param.Key} \"{param.Value}\"");
                     }
                 }
 
-                argumentsBuilder.Append("\"");
-                fileName = "powershell.exe";
+                fileName = "pwsh.exe";
                 arguments = argumentsBuilder.ToString();
             }
             else
@@ -169,16 +269,16 @@ public class CliToolService
             // Create a new process
             using var process = new Process();
 
-            // All tools run in the same console without redirecting streams
+            // Run in the same console window - do NOT use UseShellExecute = true as it creates new windows
             process.StartInfo = new ProcessStartInfo
             {
                 FileName = fileName,
                 Arguments = arguments,
                 UseShellExecute = false,
+                CreateNoWindow = false,
                 RedirectStandardOutput = false,
                 RedirectStandardError = false,
-                RedirectStandardInput = false,
-                CreateNoWindow = false
+                RedirectStandardInput = false
             };
 
             // Start the process
