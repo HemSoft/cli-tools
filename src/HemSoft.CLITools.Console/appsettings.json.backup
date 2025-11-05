@@ -79,6 +79,61 @@
                 "Version": "1.0.0",
                 "IsInteractive": true,
                 "Parameters": {}
+            },
+            {
+                "Name": "MarkdownLint",
+                "Description": "Lint and format Markdown files to ensure consistency and proper syntax",
+                "Command": "markdownlint.cmd",
+                "Version": "1.0.0",
+                "Parameters": {},
+                "RuntimeArguments": [
+                    {
+                        "Name": "files",
+                        "Prompt": "Enter Markdown file(s) or pattern to lint (e.g., *.md, README.md)",
+                        "Required": true,
+                        "DefaultValue": "*.md"
+                    }
+                ]
+            },
+            {
+                "Name": "Count Lines Of Code",
+                "Description": "Count Lines Of Code",
+                "Command": "cloc",
+                "Version": "1.0.0",
+                "IsInteractive": false,
+                "Parameters": {},
+                "RuntimeArguments": [
+                    {
+                        "Name": "Directory to count",
+                        "Prompt": "Directory to count",
+                        "Required": false,
+                        "DefaultValue": "."
+                    }
+                ]
+            },
+            {
+                "Name": "ripgrep",
+                "Description": "Fast search for text in files.",
+                "Command": "rg",
+                "Version": "1.0.0",
+                "IsInteractive": false,
+                "Parameters": {},
+                "RuntimeArguments": [
+                    {
+                        "Name": "Search",
+                        "Prompt": "Search",
+                        "Required": true,
+                        "DefaultValue": "\"search\""
+                    }
+                ]
+            },
+            {
+                "Name": "RAG POC",
+                "Description": "RAG POC",
+                "Command": "rag-poc.ps1",
+                "Version": "1.0.0",
+                "IsInteractive": true,
+                "Parameters": {}
             }
         ]
     }

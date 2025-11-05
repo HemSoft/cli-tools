@@ -41,6 +41,17 @@ public class MenuHandler
             {
                 exitRequested = true;
             }
+            else if (selection == "___IMPORT_TOOL___")
+            {
+                // Run the import tool script
+                AnsiConsole.Clear();
+                _cliToolService.RunImportTool();
+            }
+            else if (selection == "___SEPARATOR___")
+            {
+                // Separator was selected (shouldn't happen with proper UI but handle gracefully)
+                continue;
+            }
             else
             {
                 var selectedTool = _cliToolService.GetCliToolByName(selection);
@@ -96,6 +107,15 @@ public class MenuHandler
         // Create a dictionary to map display strings to tool names
         var displayMap = new Dictionary<string, string>();
         var choices = new List<string>();
+
+        // Add special "Import Tool" option first with distinctive styling
+        string importDisplayText = "[bold yellow]⊕ Import New Tool[/] - [grey]Add a new tool to the CLI Tools ecosystem[/]";
+        displayMap[importDisplayText] = "___IMPORT_TOOL___";
+        choices.Add(importDisplayText);
+
+        // Add separator
+        choices.Add("[dim]─────────────────────────────────────────────────────────[/]");
+        displayMap["[dim]─────────────────────────────────────────────────────────[/]"] = "___SEPARATOR___";
 
         // Create formatted display strings with descriptions
         foreach (var tool in cliTools)

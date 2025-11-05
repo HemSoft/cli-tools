@@ -142,6 +142,49 @@ public class CliToolService
     }
 
     /// <summary>
+    /// Runs the import tool script to add a new tool to the ecosystem
+    /// </summary>
+    public void RunImportTool()
+    {
+        try
+        {
+            string importScriptPath = _configurationService.GetScriptPath("import-tool.ps1");
+
+            if (!File.Exists(importScriptPath))
+            {
+                AnsiConsole.MarkupLine("[red]Error: import-tool.ps1 script not found![/]");
+                AnsiConsole.MarkupLine($"[yellow]Expected location: {importScriptPath}[/]");
+                AnsiConsole.WriteLine();
+                AnsiConsole.WriteLine("Press any key to return to the main menu...");
+                System.Console.ReadKey(true);
+                return;
+            }
+
+            using var process = new Process();
+            process.StartInfo = new ProcessStartInfo
+            {
+                FileName = "pwsh.exe",
+                Arguments = $"-ExecutionPolicy Bypass -NoProfile -File \"{importScriptPath}\"",
+                UseShellExecute = false,
+                CreateNoWindow = false,
+                RedirectStandardOutput = false,
+                RedirectStandardError = false,
+                RedirectStandardInput = false
+            };
+
+            process.Start();
+            process.WaitForExit();
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[red]Error running import tool: {ex.Message}[/]");
+            AnsiConsole.WriteLine();
+            AnsiConsole.WriteLine("Press any key to return to the main menu...");
+            System.Console.ReadKey(true);
+        }
+    }
+
+    /// <summary>
     /// Runs a CLI tool and displays its output
     /// </summary>
     /// <param name="cliTool">The CLI tool to run</param>
@@ -221,7 +264,24 @@ public class CliToolService
             if (cliTool.Command.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase))
             {
                 // PowerShell script execution - run in the current console window
-                string scriptPath = _configurationService.GetScriptPath(cliTool.Command);
+                string scriptPath;
+
+                // Check if the command is a full path
+                if (Path.IsPathRooted(cliTool.Command))
+                {
+                    if (File.Exists(cliTool.Command))
+                    {
+                        scriptPath = cliTool.Command;
+                    }
+                    else
+                    {
+                        throw new FileNotFoundException($"PowerShell script not found at specified path: {cliTool.Command}");
+                    }
+                }
+                else
+                {
+                    scriptPath = _configurationService.GetScriptPath(cliTool.Command);
+                }
 
                 // Build arguments string with parameters if available
                 StringBuilder argumentsBuilder = new StringBuilder();
@@ -243,6 +303,14 @@ public class CliToolService
             {
                 // Direct executable
                 fileName = cliTool.Command;
+
+                // Check if the command is a full path or needs to be resolved
+                if (Path.IsPathRooted(fileName) && !File.Exists(fileName))
+                {
+                    // Full path specified but file doesn't exist
+                    throw new FileNotFoundException($"Executable not found at specified path: {fileName}");
+                }
+                // else: fileName is just a command name on PATH, which will be resolved by the system
 
                 // Build arguments for direct executables
                 StringBuilder argumentsBuilder = new StringBuilder();
@@ -269,12 +337,16 @@ public class CliToolService
             // Create a new process
             using var process = new Process();
 
+            // For interactive tools, we need UseShellExecute = false to run in same console
+            // For non-interactive tools, UseShellExecute = true handles PATH resolution better
+            bool useShellExecute = !isInteractiveTool && !Path.IsPathRooted(fileName);
+
             // Run in the same console window - do NOT use UseShellExecute = true as it creates new windows
             process.StartInfo = new ProcessStartInfo
             {
                 FileName = fileName,
                 Arguments = arguments,
-                UseShellExecute = false,
+                UseShellExecute = useShellExecute,
                 CreateNoWindow = false,
                 RedirectStandardOutput = false,
                 RedirectStandardError = false,

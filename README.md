@@ -2,6 +2,35 @@
 
 A collection of command-line interface tools and scripts for various automation tasks.
 
+## Features
+
+- **Interactive Menu**: Browse and launch tools from a user-friendly Spectre.Console-powered interface
+- **Import Tool**: Guided wizard to add new tools to the ecosystem (first option in the menu)
+- **Script Management**: Automatic copying and organization of PowerShell scripts
+- **Parameter Configuration**: Support for static parameters and runtime arguments
+- **Interactive Tools**: Special handling for tools that need full console control
+
+## Importing New Tools
+
+The CLI Tools ecosystem makes it easy to add new tools through the **Import Tool** wizard (highlighted in yellow as the first menu option). The wizard guides you through:
+
+1. **Basic Information**: Name, description, and version
+2. **Tool Type**: PowerShell script, executable on PATH, or executable with full path
+3. **Verification**: Optional tool execution test
+4. **Interactivity**: Configure whether the tool needs full console control
+5. **Parameters**: Add static parameters passed to the tool every time
+6. **Runtime Arguments**: Configure prompts shown to users before running the tool
+7. **Review**: Confirm configuration before saving
+
+The import process automatically:
+- Copies PowerShell scripts to the `scripts` directory
+- Verifies tool availability
+- Tests tool execution
+- Updates `appsettings.json` with proper configuration
+- Creates backups before modifying configuration
+
+📖 **For detailed import instructions, examples, and troubleshooting, see [IMPORT-GUIDE.md](IMPORT-GUIDE.md)**
+
 ## Installed CLI Tools
 
 The following CLI tools are installed and available for use:
