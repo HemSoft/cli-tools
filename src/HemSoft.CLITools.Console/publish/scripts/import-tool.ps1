@@ -469,7 +469,9 @@ try {
     # Add tool to configuration
     # Ensure CliTools is treated as an array and use array concatenation
     $currentTools = @($appSettings.AppSettings.CliTools)
-    $appSettings.AppSettings.CliTools = $currentTools + $newTool    # Save configuration
+    $appSettings.AppSettings.CliTools = $currentTools + $newTool
+
+    # Save configuration
     Save-AppSettings $appSettings
 
     Write-Host ""

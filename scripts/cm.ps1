@@ -1,11 +1,11 @@
 # cm.ps1
+# Version: 1.0.0 - DST-aware scheduling
 
 # Define parameters with default values that can be overridden from configuration
 param(
     [string]$ApiUrl = "https://eggcoop.org/api/contracts",
     [string]$PageSize = "20",
     [string]$SortField = "startTime,desc",
-    [string]$TimeZoneOffset = "-05:00",
     [string]$Formula = "Majeggstics 24h",
     [string]$TimeSlot = "2 - Two",
     [string]$CoopFlag = "Any Grade",
@@ -27,7 +27,6 @@ Write-DebugOutput "Using the following parameters:"
 Write-DebugOutput "  API URL: $ApiUrl"
 Write-DebugOutput "  Page Size: $PageSize"
 Write-DebugOutput "  Sort Field: $SortField"
-Write-DebugOutput "  Time Zone Offset: $TimeZoneOffset"
 Write-DebugOutput "  Formula: $Formula"
 Write-DebugOutput "  Time Slot: $TimeSlot"
 Write-DebugOutput "  Coop Flag: $CoopFlag"
@@ -47,6 +46,30 @@ function Convert-UTCToLocal {
     return $localDate
 }
 
+# Function to get the correct scheduled time based on DST
+function Get-ScheduledTimeWithDST {
+    param([DateTime]$scheduleDate)
+
+    # Check if the schedule date is in DST
+    $isDST = [System.TimeZoneInfo]::Local.IsDaylightSavingTime($scheduleDate)
+
+    if ($isDST) {
+        # During DST (EDT): 6 PM EST = 7 PM EDT = 19:00:00-04:00
+        $time = "19:00:00"
+        $offset = "-04:00"
+    }
+    else {
+        # During standard time (EST): 6 PM EST = 18:00:00-05:00
+        $time = "18:00:00"
+        $offset = "-05:00"
+    }
+
+    return @{
+        Time   = $time
+        Offset = $offset
+    }
+}
+
 # Function to get next day in local time for a given date
 function Get-NextDayLocal {
     param([DateTime]$date)
@@ -64,7 +87,7 @@ $fullApiUrl = "$ApiUrl`?page=0&size=$PageSize&sort=$SortField"
 # Fetch the contracts from the API
 try {
     Write-DebugOutput "Fetching contracts from $fullApiUrl..."
-    Write-Output "Fetching contracts..."
+    Write-Output "Fetching contracts v1.0.0 ..."
     $response = Invoke-RestMethod -Uri $fullApiUrl -Method Get -TimeoutSec 30
 }
 catch {
@@ -165,14 +188,23 @@ if ($todayContracts.Count -ge 1) {
     # Calculate next day based on first contract's local date
     $nextDay1 = Get-NextDayLocal -date $sortedContracts[0].localDate
 
+    # Get the scheduled date for DST calculation
+    $scheduleDate1 = [DateTime]::ParseExact($nextDay1, "yyyy-MM-dd", $null)
+    $timeInfo1 = Get-ScheduledTimeWithDST -scheduleDate $scheduleDate1
+
     # First command (always present if there are any contracts)
-    Write-Output "/checkminimums kevid:$($sortedContracts[0].contractIdentifier) formula:$Formula timeslot:$TimeSlot coopflag:$CoopFlag hidden:$Hidden delay_until:${nextDay1}T17:00:00$TimeZoneOffset"
+    Write-Output "/checkminimums kevid:$($sortedContracts[0].contractIdentifier) formula:$Formula timeslot:$TimeSlot coopflag:$CoopFlag hidden:$Hidden delay_until:${nextDay1}T$($timeInfo1.Time)$($timeInfo1.Offset)"
 
     # Second command (only if there are at least 2 contracts)
     if ($sortedContracts.Count -ge 2) {
         # Calculate next day based on second contract's local date
         $nextDay2 = Get-NextDayLocal -date $sortedContracts[1].localDate
-        Write-Output "/checkminimums kevid:$($sortedContracts[1].contractIdentifier) formula:$Formula timeslot:$TimeSlot coopflag:$CoopFlag hidden:$Hidden delay_until:${nextDay2}T17:01:00$TimeZoneOffset"
+
+        # Get the scheduled date for DST calculation
+        $scheduleDate2 = [DateTime]::ParseExact($nextDay2, "yyyy-MM-dd", $null)
+        $timeInfo2 = Get-ScheduledTimeWithDST -scheduleDate $scheduleDate2
+
+        Write-Output "/checkminimums kevid:$($sortedContracts[1].contractIdentifier) formula:$Formula timeslot:$TimeSlot coopflag:$CoopFlag hidden:$Hidden delay_until:${nextDay2}T$($timeInfo2.Time)$($timeInfo2.Offset)"
     }
     elseif ($sortedContracts.Count -eq 1 -and $Debug) {
         Write-Output "`nNote: Only one contract found for the selected date."

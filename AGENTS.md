@@ -11,3 +11,5 @@ When generating PowerShell commands or scripts, use ';' (semicolon) as a command
 Example:
 - ✅ Correct: `command1; command2; command3`
 - ❌ Incorrect: `command1 && command2 && command3`
+
+Always run and test PowerShell scripts after creating or modifying them to verify they work as expected in the current environment.
