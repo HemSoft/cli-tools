@@ -52,4 +52,11 @@
     <AdditionalFiles Include="SonarLint.xml" />
   </ItemGroup>
 
+  <Target Name="LintMarkdown" BeforeTargets="Build">
+    <Message Text="Linting Markdown files..." Importance="high" />
+    <Exec Command="npx --yes markdownlint-cli &quot;**/*.md&quot; --ignore &quot;**/bin/**&quot; --ignore &quot;**/obj/**&quot; --ignore &quot;**/node_modules/**&quot; --ignore &quot;**/slurps/**&quot; --ignore &quot;**/slurps_partials/**&quot;" 
+          WorkingDirectory="$(MSBuildThisFileDirectory)../../"
+          ConsoleToMSBuild="true" />
+  </Target>
+
 </Project>

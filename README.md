@@ -23,6 +23,7 @@ The CLI Tools ecosystem makes it easy to add new tools through the **Import Tool
 7. **Review**: Confirm configuration before saving
 
 The import process automatically:
+
 - Copies PowerShell scripts to the `scripts` directory
 - Verifies tool availability
 - Tests tool execution
@@ -36,12 +37,15 @@ The import process automatically:
 The following CLI tools are installed and available for use:
 
 ### edit
+
 Microsoft's new open-source command-line text editor for Windows. A modern, lightweight terminal-based editor that provides an intuitive editing experience directly from the command line.
 
 ### dive
+
 A powerful tool for exploring Docker image layers and analyzing their contents. Helps optimize Docker images by showing what's in each layer, identifying wasted space, and discovering ways to shrink image size.
 
 ### lazygit
+
 A simple and intuitive terminal UI for Git commands. Provides a beautiful interface for staging files, viewing diffs, managing branches, and performing Git operations without memorizing complex command syntax.
 
 ## Scripts
@@ -83,6 +87,7 @@ The `.editorconfig` file at the root of the repository defines the coding style 
 ### SonarQube Integration
 
 We use `SonarAnalyzer.CSharp` to perform advanced static analysis.
+
 - **Configuration**: `SonarLint.xml` configures specific rules, such as **Cognitive Complexity (S3776)** with a threshold of 15.
 - **Enforcement**: Analyzers run during the build process, reporting issues as warnings.
 
