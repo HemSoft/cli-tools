@@ -5,8 +5,15 @@ using HemSoft.CLITools.Console.UI;
 using Microsoft.Extensions.DependencyInjection;
 using Spectre.Console;
 
-public class Program
+/// <summary>
+/// The main entry point for the application.
+/// </summary>
+public static class Program
 {
+    /// <summary>
+    /// The main entry point for the application.
+    /// </summary>
+    /// <param name="args">The command-line arguments.</param>
     public static void Main(string[] args)
     {
         try
@@ -23,7 +30,6 @@ public class Program
         catch (Exception ex)
         {
             AnsiConsole.WriteException(ex);
-            return;
         }
     }
 

@@ -7,20 +7,12 @@ using Spectre.Console;
 /// <summary>
 /// Handles the CLI tools menu
 /// </summary>
-public class MenuHandler
+/// <param name="cliToolService">The CLI tool service</param>
+/// <param name="configurationService">The configuration service</param>
+public class MenuHandler(CliToolService cliToolService, ConfigurationService configurationService)
 {
-    private readonly CliToolService _cliToolService;
-    private readonly ConfigurationService _configurationService;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="MenuHandler"/> class.
-    /// </summary>
-    /// <param name="cliToolService">The CLI tool service</param>
-    public MenuHandler(CliToolService cliToolService, ConfigurationService configurationService)
-    {
-        _cliToolService = cliToolService;
-        _configurationService = configurationService;
-    }
+    private readonly CliToolService _cliToolService = cliToolService;
+    private readonly ConfigurationService _configurationService = configurationService;
 
     /// <summary>
     /// Shows the main menu
@@ -47,32 +39,32 @@ public class MenuHandler
                 AnsiConsole.Clear();
                 _cliToolService.RunImportTool();
             }
-            else if (selection == "___SEPARATOR___")
+            else if (selection != "___SEPARATOR___")
             {
-                // Separator was selected (shouldn't happen with proper UI but handle gracefully)
-                continue;
+                HandleToolSelection(selection);
             }
-            else
+        }
+    }
+
+    private void HandleToolSelection(string selection)
+    {
+        var selectedTool = _cliToolService.GetCliToolByName(selection);
+        if (selectedTool != null)
+        {
+            // Clear the screen before running interactive tools
+            if (selectedTool.IsInteractive)
             {
-                var selectedTool = _cliToolService.GetCliToolByName(selection);
-                if (selectedTool != null)
-                {
-                    // Clear the screen before running interactive tools
-                    if (selectedTool.IsInteractive)
-                    {
-                        AnsiConsole.Clear();
-                    }
+                AnsiConsole.Clear();
+            }
 
-                    _cliToolService.RunCliTool(selectedTool);
+            _cliToolService.RunCliTool(selectedTool);
 
-                    // Only prompt for non-interactive tools
-                    if (!selectedTool.IsInteractive)
-                    {
-                        AnsiConsole.WriteLine();
-                        AnsiConsole.WriteLine("Press any key to return to the main menu...");
-                        System.Console.ReadKey(true);
-                    }
-                }
+            // Only prompt for non-interactive tools
+            if (!selectedTool.IsInteractive)
+            {
+                AnsiConsole.WriteLine();
+                AnsiConsole.WriteLine("Press any key to return to the main menu...");
+                System.Console.ReadKey(true);
             }
         }
     }
@@ -139,31 +131,9 @@ public class MenuHandler
         // Enable wrap-around so Up from top goes to bottom and Down from bottom goes to top
         prompt.WrapAround = true;
 
+        // ...existing code...
         // Get the selected display string and map it back to the tool name
         string selectedDisplay = AnsiConsole.Prompt(prompt);
         return displayMap[selectedDisplay];
-    }
-
-    /// <summary>
-    /// Displays the details of a CLI tool
-    /// </summary>
-    /// <param name="cliTool">The CLI tool</param>
-    private static void DisplayToolDetails(CliTool cliTool)
-    {
-        AnsiConsole.Clear();
-
-        var table = new Table()
-            .Border(TableBorder.Rounded)
-            .BorderColor(Color.Blue)
-            .AddColumn(new TableColumn("Property").Centered())
-            .AddColumn(new TableColumn("Value").Centered());
-
-        table.AddRow("[yellow]Name[/]", cliTool.Name);
-        table.AddRow("[yellow]Description[/]", cliTool.Description);
-        table.AddRow("[yellow]Command[/]", cliTool.Command);
-        table.AddRow("[yellow]Version[/]", cliTool.Version);
-
-        AnsiConsole.Write(table);
-        AnsiConsole.WriteLine();
     }
 }

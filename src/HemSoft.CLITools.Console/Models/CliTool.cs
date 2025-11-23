@@ -33,5 +33,5 @@ public class CliTool
     /// <summary>
     /// Gets or sets the runtime arguments that should be prompted from the user before running the tool
     /// </summary>
-    public List<RuntimeArgument> RuntimeArguments { get; set; } = new List<RuntimeArgument>();
+    public List<RuntimeArgument> RuntimeArguments { get; set; } = [];
 }

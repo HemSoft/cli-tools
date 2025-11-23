@@ -1,0 +1,52 @@
+root = true
+
+[*.cs]
+# Place using statements inside the namespace
+csharp_using_directive_placement = inside_namespace:warning
+
+# Remove unused using statements
+dotnet_diagnostic.IDE0005.severity = warning
+
+# Order modifiers
+dotnet_diagnostic.IDE0036.severity = warning
+
+# Remove unreachable code
+dotnet_diagnostic.IDE0035.severity = warning
+
+# Use primary constructors
+csharp_style_prefer_primary_constructors = true:warning
+dotnet_diagnostic.IDE0290.severity = warning
+
+# Simplify collection initialization
+dotnet_diagnostic.IDE0028.severity = warning
+
+# Prefer field keyword
+csharp_style_prefer_field_keyword = true:warning
+
+# Prefer null-conditional assignment
+csharp_style_prefer_null_conditional_assignment = true:warning
+
+# Prefer unbound generic nameof
+csharp_style_prefer_unbound_generic_nameof = true:warning
+
+# Prefer partial members
+csharp_style_prefer_partial_members = true:warning
+
+# Prefer is null check
+dotnet_style_prefer_is_null_check_over_reference_equality_method = true:warning
+
+# Prefer pattern matching over as with null check
+csharp_style_pattern_matching_over_as_with_null_check = true:warning
+
+# Expression-bodied members
+csharp_style_expression_bodied_methods = true:warning
+csharp_style_expression_bodied_constructors = true:warning
+csharp_style_expression_bodied_operators = true:warning
+
+# File-scoped namespaces
+csharp_style_namespace_declarations = file_scoped:warning
+
+# Cognitive Complexity
+dotnet_diagnostic.S3776.severity = warning
+
+

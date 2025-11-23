@@ -28,7 +28,7 @@ public class CliToolConfig
     /// <summary>
     /// Gets or sets the parameters for the CLI tool
     /// </summary>
-    public Dictionary<string, string> Parameters { get; set; } = new Dictionary<string, string>();
+    public Dictionary<string, string> Parameters { get; set; } = [];
 
     /// <summary>
     /// Gets or sets whether the tool is interactive and should be launched in a separate terminal window
@@ -38,7 +38,7 @@ public class CliToolConfig
     /// <summary>
     /// Gets or sets the runtime arguments that should be prompted from the user before running the tool
     /// </summary>
-    public List<RuntimeArgument> RuntimeArguments { get; set; } = new List<RuntimeArgument>();
+    public List<RuntimeArgument> RuntimeArguments { get; set; } = [];
 }
 
 /// <summary>

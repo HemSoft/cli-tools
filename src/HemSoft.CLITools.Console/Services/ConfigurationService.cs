@@ -36,7 +36,7 @@ public class ConfigurationService : IDisposable
         // Ensure we have at least an empty list if no CLI tools were configured
         if (_appSettings.CliTools == null)
         {
-            _appSettings.CliTools = new List<CliToolConfig>();
+            _appSettings.CliTools = [];
         }
 
         // Determine scripts directory: prefer physical 'scripts' folder next to app
