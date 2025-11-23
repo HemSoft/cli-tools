@@ -104,7 +104,7 @@ public class CliToolService
     private static List<string> ParseDockerImagesOutput(string jsonOutput)
     {
         var images = new List<string>();
-        var lines = jsonOutput.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+        var lines = jsonOutput.Split([Environment.NewLine], StringSplitOptions.RemoveEmptyEntries);
 
         foreach (var line in lines)
         {
