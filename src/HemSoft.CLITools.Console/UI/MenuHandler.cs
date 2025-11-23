@@ -131,7 +131,6 @@ public class MenuHandler(CliToolService cliToolService, ConfigurationService con
         // Enable wrap-around so Up from top goes to bottom and Down from bottom goes to top
         prompt.WrapAround = true;
 
-        // ...existing code...
         // Get the selected display string and map it back to the tool name
         string selectedDisplay = AnsiConsole.Prompt(prompt);
         return displayMap[selectedDisplay];

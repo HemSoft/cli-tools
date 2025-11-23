@@ -8,7 +8,7 @@ using System.Reflection;
 /// <summary>
 /// Service for managing application configuration
 /// </summary>
-public class ConfigurationService : IDisposable
+public sealed class ConfigurationService : IDisposable
 {
     private readonly IConfiguration _configuration;
     private readonly AppSettings _appSettings;
