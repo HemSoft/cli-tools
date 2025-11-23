@@ -65,10 +65,22 @@ $sbGitHub = {
         $searchQuery += " review:approved reviewer:@me is:merged merged:>=$DateStr"
     }
     else {
-        $searchQuery += " review-requested:@me is:open"
+        $searchQuery += " reviewer:@me is:open"
     }
 
-    $prs = gh pr list --search "$searchQuery" --json number,title,url,state,mergedAt,createdAt,author,reviews --limit 100 2>$null | ConvertFrom-Json
+    $ghOutput = gh pr list --search "$searchQuery" --json number,title,url,state,mergedAt,createdAt,author,reviews --limit 100 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "GitHub CLI error: $ghOutput"
+        return @()
+    }
+
+    try {
+        $prs = $ghOutput | ConvertFrom-Json
+    } catch {
+        if ([string]::IsNullOrWhiteSpace($ghOutput)) { return @() }
+        Write-Error "Failed to parse GitHub JSON: $_"
+        return @()
+    }
 
     if (-not $prs) { return @() }
     if ($prs -isnot [array]) { $prs = @($prs) }
@@ -78,8 +90,8 @@ $sbGitHub = {
 
         $isApproved = $false
         if ($currentUser) {
-             $lastReview = $_.reviews | Where-Object { $_.author.login -eq $currentUser } | Sort-Object submittedAt -Descending | Select-Object -First 1
-             if ($lastReview.state -eq 'APPROVED') { $isApproved = $true }
+            $lastReview = $_.reviews | Where-Object { $_.author.login -eq $currentUser } | Sort-Object submittedAt -Descending | Select-Object -First 1
+            if ($lastReview.state -eq 'APPROVED') { $isApproved = $true }
         }
         if (-not $currentUser -and $Mode -like 'Approved*') { $isApproved = $true }
 
@@ -107,7 +119,10 @@ $sbBitbucket = {
     $env:BITBUCKET_API_TOKEN = $Token
     $env:BITBUCKET_USERNAME = $Username
 
-    if ([string]::IsNullOrWhiteSpace($Token)) { return @() }
+    if ([string]::IsNullOrWhiteSpace($Token)) {
+        Write-Warning "Bitbucket Token is missing. Skipping Bitbucket checks."
+        return @()
+    }
 
     function Invoke-BitbucketApi {
         param($Uri, $Headers)
@@ -117,7 +132,8 @@ $sbBitbucket = {
             $attempt++
             try {
                 return Invoke-RestMethod -Uri $Uri -Headers $Headers -Method Get -ErrorAction Stop
-            } catch {
+            }
+            catch {
                 $ex = $_.Exception
                 # Check for 429 Too Many Requests
                 if ($ex.Response -and [int]$ex.Response.StatusCode -eq 429) {
@@ -139,6 +155,22 @@ $sbBitbucket = {
         }
     }
 
+    function Get-BitbucketPagedResult {
+        param($Uri, $Headers)
+        $results = @()
+        $nextUri = $Uri
+
+        do {
+            $resp = Invoke-BitbucketApi -Uri $nextUri -Headers $Headers
+            if ($resp.values) {
+                $results += $resp.values
+            }
+            $nextUri = $resp.next
+        } while ($nextUri)
+
+        return $results
+    }
+
     # Auth Header
     $authHeader = $null
     if (-not [string]::IsNullOrWhiteSpace($Username)) {
@@ -146,7 +178,8 @@ $sbBitbucket = {
         $bytes = [System.Text.Encoding]::ASCII.GetBytes($pair)
         $base64 = [Convert]::ToBase64String($bytes)
         $authHeader = @{ Authorization = "Basic $base64" }
-    } else {
+    }
+    else {
         $pair = "x-token-auth:$Token"
         $bytes = [System.Text.Encoding]::ASCII.GetBytes($pair)
         $base64 = [Convert]::ToBase64String($bytes)
@@ -155,7 +188,8 @@ $sbBitbucket = {
 
     try {
         $currentUser = Invoke-BitbucketApi -Uri "https://api.bitbucket.org/2.0/user" -Headers $authHeader
-    } catch { return @() }
+    }
+    catch { return @() }
     $myUuid = $currentUser.uuid
 
     # Optimization: Only check repos updated in the last 90 days to avoid rate limits
@@ -163,9 +197,13 @@ $sbBitbucket = {
     $repoUrl = "https://api.bitbucket.org/2.0/repositories/${Workspace}?pagelen=100&sort=-updated_on&q=updated_on>=${minDate}"
 
     try {
-        $reposResp = Invoke-BitbucketApi -Uri $repoUrl -Headers $authHeader
-        $repos = $reposResp.values
-    } catch { return @() }
+        # Use Paged Result for Repositories
+        $repos = Get-BitbucketPagedResult -Uri $repoUrl -Headers $authHeader
+    }
+    catch {
+        Write-Error "Failed to fetch Bitbucket repositories: $_"
+        return @()
+    }
 
     if (-not $repos) { return @() }
 
@@ -179,12 +217,12 @@ $sbBitbucket = {
             $q += " AND updated_on >= $DateStr"
         }
 
-        $fields = "values.id,values.title,values.links.html.href,values.state,values.author.display_name,values.updated_on,values.merged_on,values.created_on,values.participants.user.uuid,values.participants.approved,values.reviewers.uuid"
+        $fields = "values.id,values.title,values.links.html.href,values.state,values.author.display_name,values.updated_on,values.merged_on,values.created_on,values.participants.user.uuid,values.participants.approved,values.reviewers.uuid,next"
         $prUrl = "https://api.bitbucket.org/2.0/repositories/$($repo.full_name)/pullrequests?q=$q&sort=-updated_on&pagelen=50&fields=$fields"
 
         try {
-            $prResp = Invoke-BitbucketApi -Uri $prUrl -Headers $authHeader
-            $repoPrs = $prResp.values
+            # Use Paged Result for PRs
+            $repoPrs = Get-BitbucketPagedResult -Uri $prUrl -Headers $authHeader
 
             if ($repoPrs) {
                 foreach ($pr in $repoPrs) {
@@ -199,7 +237,7 @@ $sbBitbucket = {
                     }
 
                     if ($Mode -eq 'Default') {
-                        if ($meAsReviewer -and (-not $meAsParticipant.approved)) { $include = $true }
+                        if ($meAsReviewer) { $include = $true }
                     }
                     elseif ($Mode -eq 'ApprovedAndOpen') {
                         if ($meAsParticipant.approved) { $include = $true }
@@ -224,7 +262,8 @@ $sbBitbucket = {
                     }
                 }
             }
-        } catch {
+        }
+        catch {
             Write-Error "Failed to fetch PRs for $($repo.full_name): $_"
         }
     }
@@ -236,6 +275,11 @@ $sbBitbucket = {
 # -----------------------------------------------------------------------------
 
 $runLoop = $PSCmdlet.ParameterSetName -eq 'Default'
+if (-not $runLoop) { Clear-Host }
+
+# State tracking for notifications
+$knownPrKeys = [System.Collections.Generic.HashSet[string]]::new()
+$firstRun = $true
 
 do {
     if ($runLoop) { Clear-Host }
@@ -286,18 +330,76 @@ do {
     if ($ghPrs) { $allPrs += $ghPrs }
     if ($bbPrs) { $allPrs += $bbPrs }
 
+    # -------------------------------------------------------------------------
+    # Notification Logic
+    # -------------------------------------------------------------------------
+    $currentPrKeys = [System.Collections.Generic.HashSet[string]]::new()
+    $newPrs = @()
+
+    if ($allPrs) {
+        foreach ($pr in $allPrs) {
+            $key = "$($pr.Source)|$($pr.Repository)|$($pr.ID)"
+            $null = $currentPrKeys.Add($key)
+
+            if (-not $firstRun -and -not $knownPrKeys.Contains($key)) {
+                $newPrs += $pr
+            }
+        }
+    }
+
+    if ($newPrs) {
+        foreach ($nPr in $newPrs) {
+            $msgTitle = "New PR: $($nPr.Repository)"
+            $msgBody = $nPr.Title
+            
+            if (Get-Module -ListAvailable BurntToast) {
+                try {
+                    New-BurntToastNotification -Text $msgTitle, $msgBody -ErrorAction Stop
+                } catch {
+                    Write-Warning "Could not send toast: $_"
+                }
+            } else {
+                Write-Host "`a" # Beep
+            }
+        }
+    }
+
+    # Only update state if we successfully fetched something or if there were no errors
+    # This prevents clearing the cache on a complete network failure (0 PRs + Errors)
+    if ($allPrs.Count -gt 0 -or -not $jobErrors) {
+        $knownPrKeys = $currentPrKeys
+        $firstRun = $false
+    }
+
     if ($allPrs.Count -eq 0) {
         if ($jobErrors) {
             Write-Host "❌ No PRs found, but errors occurred (see above)." -ForegroundColor Red
-        } else {
+        }
+        else {
             Write-Host "✅ All clear!" -ForegroundColor Green
         }
-    } else {
+    }
+    else {
         # Sort
         $sortedPrs = $allPrs | Sort-Object Source, Repository, ID
 
+        # Calculate Dynamic Widths
+        $termWidth = 120
+        try { $termWidth = $Host.UI.RawUI.WindowSize.Width } catch {}
+        if (-not $termWidth) { $termWidth = 120 }
+
+        # Fixed columns: Approved(8) + Status(11) + Created(13) + Spacer(1) = 33 chars
+        # Reserve 1 char buffer to prevent wrapping
+        $available = $termWidth - 34
+        if ($available -lt 30) { $available = 30 }
+
+        # Distribute: Repo ~ 20%, Title ~ 80%
+        $repoWidth = [Math]::Max(10, [int]($available * 0.20))
+        $titleWidth = [Math]::Max(10, ($available - $repoWidth))
+
         # Format Output
-        $header = "{0,-8} {1,-10} {2,-12} {3,-25} {4,-50} {5}" -f 'Approved', 'Status', 'Created', 'Repo', 'Title', 'Link'
+        $headerFmt = "{0,-8} {1,-10} {2,-12} {3,-$repoWidth} {4,-$titleWidth}"
+        $header = $headerFmt -f 'Approved', 'Status', 'Created', 'Repo', 'Title'
         Write-Host $header
 
         foreach ($pr in $sortedPrs) {
@@ -305,14 +407,16 @@ do {
             $created = if ($pr.Created) { ([DateTime]$pr.Created).ToString('yyyy-MM-dd') } else { '' }
 
             $repo = $pr.Repository
-            if ($repo.Length -gt 25) { $repo = $repo.Substring(0, 22) + '...' }
+            if ($repo.Length -gt $repoWidth) { $repo = $repo.Substring(0, $repoWidth - 3) + '...' }
 
             $title = $pr.Title
-            if ($title.Length -gt 50) { $title = $title.Substring(0, 47) + '...' }
+            if ($title.Length -gt $titleWidth) { $title = $title.Substring(0, $titleWidth - 3) + '...' }
 
             # Emoji alignment fix: "{0,-7}" pads 1 char to 7 chars (adds 6 spaces). Visual: 2+6=8.
-            $line = "{0,-7} {1,-10} {2,-12} {3,-25} {4,-50} {5}" -f $appr, $pr.State, $created, $repo, $title, $pr.URL
+            $lineFmt = "{0,-7} {1,-10} {2,-12} {3,-$repoWidth} {4,-$titleWidth}"
+            $line = $lineFmt -f $appr, $pr.State, $created, $repo, $title
             Write-Host $line
+            Write-Host "         $($pr.URL)" -ForegroundColor DarkGray
         }
     }
 
