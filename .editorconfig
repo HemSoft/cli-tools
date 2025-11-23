@@ -20,6 +20,10 @@ dotnet_diagnostic.IDE0290.severity = warning
 # Simplify collection initialization
 dotnet_diagnostic.IDE0028.severity = warning
 
+# Use compound assignment
+csharp_style_prefer_compound_assignment = true:warning
+dotnet_diagnostic.IDE0074.severity = warning
+
 # Prefer field keyword
 csharp_style_prefer_field_keyword = true:warning
 

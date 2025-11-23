@@ -34,10 +34,7 @@ public sealed class ConfigurationService : IDisposable
         _appSettings = _configuration.GetSection("AppSettings").Get<AppSettings>() ?? new AppSettings();
 
         // Ensure we have at least an empty list if no CLI tools were configured
-        if (_appSettings.CliTools == null)
-        {
-            _appSettings.CliTools = [];
-        }
+        _appSettings.CliTools ??= [];
 
         // Determine scripts directory: prefer physical 'scripts' folder next to app
         // This supports both 'dotnet run' (bin/.../) and published output (publish/ or F:\Tools)
@@ -79,11 +76,13 @@ public sealed class ConfigurationService : IDisposable
     /// </summary>
     /// <param name="key">The configuration key</param>
     /// <returns>The configuration section</returns>
-    public IConfigurationSection GetSection(string key) => _configuration.GetSection(key);    /// <summary>
-                                                                                              /// Gets the script path for a command
-                                                                                              /// </summary>
-                                                                                              /// <param name="command">The command</param>
-                                                                                              /// <returns>The script path</returns>
+    public IConfigurationSection GetSection(string key) => _configuration.GetSection(key);
+
+    /// <summary>
+    /// Gets the script path for a command
+    /// </summary>
+    /// <param name="command">The command</param>
+    /// <returns>The script path</returns>
     public string GetScriptPath(string command)
     {
         if (_isEmbeddedMode)
