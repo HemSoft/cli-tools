@@ -65,4 +65,30 @@ This script fetches contracts from the eggcoop.org API and generates commands fo
 
 - PowerShell 7.3 or higher
 - Internet connection to access the API
-```
+
+## Code Quality
+
+This project maintains high code quality standards through a combination of `.editorconfig` rules, SonarQube analysis, and build-time enforcement.
+
+### .editorconfig & Style Rules
+
+The `.editorconfig` file at the root of the repository defines the coding style and conventions. Key rules include:
+
+- **File-scoped namespaces**: Reduces indentation levels.
+- **Inside-namespace usings**: Keeps dependencies scoped.
+- **Primary constructors**: Promotes concise class definitions.
+- **Expression-bodied members**: Encourages one-liners for simple methods/properties.
+- **Collection expressions**: Uses modern C# 12 syntax.
+
+### SonarQube Integration
+
+We use `SonarAnalyzer.CSharp` to perform advanced static analysis.
+- **Configuration**: `SonarLint.xml` configures specific rules, such as **Cognitive Complexity (S3776)** with a threshold of 15.
+- **Enforcement**: Analyzers run during the build process, reporting issues as warnings.
+
+### Build & Format
+
+Code style is enforced during the build process via the `<EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>` property in the project file.
+
+- **Check**: Run `dotnet build` to see any code style or quality warnings.
+- **Fix**: Run `dotnet format` to automatically fix style violations and ensure the codebase adheres to the defined standards.
