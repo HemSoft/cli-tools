@@ -57,33 +57,51 @@ $sbGitHub = {
     # Get current user
     $currentUser = gh api user --jq .login 2>$null
 
-    $searchQuery = "org:$Org"
+    # Build search queries - for default mode, search both authored and review-requested PRs
+    $searchQueries = @()
     if ($Mode -eq 'ApprovedAndOpen') {
-        $searchQuery += " review:approved reviewer:@me is:open"
+        $searchQueries += "org:$Org review:approved reviewer:@me is:open"
     }
     elseif ($Mode -eq 'ApprovedAndMergedSince') {
-        $searchQuery += " review:approved reviewer:@me is:merged merged:>=$DateStr"
+        $searchQueries += "org:$Org review:approved reviewer:@me is:merged merged:>=$DateStr"
     }
     else {
-        $searchQuery += " reviewer:@me is:open"
+        # Default mode: show both PRs I authored AND PRs where I'm a reviewer
+        $searchQueries += "org:$Org author:@me is:open"
+        $searchQueries += "org:$Org reviewer:@me is:open"
     }
 
-    $ghOutput = gh pr list --search "$searchQuery" --json number,title,url,state,mergedAt,createdAt,author,reviews --limit 100 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "GitHub CLI error: $ghOutput"
-        return @()
+    $allPrs = @()
+    $seenUrls = @{}
+
+    foreach ($searchQuery in $searchQueries) {
+        $ghOutput = gh pr list --search "$searchQuery" --json number,title,url,state,mergedAt,createdAt,author,reviews --limit 100 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "GitHub CLI error: $ghOutput"
+            continue
+        }
+
+        try {
+            $prs = $ghOutput | ConvertFrom-Json
+        } catch {
+            if ([string]::IsNullOrWhiteSpace($ghOutput)) { continue }
+            Write-Error "Failed to parse GitHub JSON: $_"
+            continue
+        }
+
+        if ($prs) {
+            if ($prs -isnot [array]) { $prs = @($prs) }
+            foreach ($pr in $prs) {
+                if (-not $seenUrls.ContainsKey($pr.url)) {
+                    $seenUrls[$pr.url] = $true
+                    $allPrs += $pr
+                }
+            }
+        }
     }
 
-    try {
-        $prs = $ghOutput | ConvertFrom-Json
-    } catch {
-        if ([string]::IsNullOrWhiteSpace($ghOutput)) { return @() }
-        Write-Error "Failed to parse GitHub JSON: $_"
-        return @()
-    }
-
+    $prs = $allPrs
     if (-not $prs) { return @() }
-    if ($prs -isnot [array]) { $prs = @($prs) }
 
     return $prs | ForEach-Object {
         $repoName = ($_.url -split '/')[-3]
@@ -393,13 +411,13 @@ do {
         $available = $termWidth - 34
         if ($available -lt 30) { $available = 30 }
 
-        # Distribute: Repo ~ 20%, Title ~ 80%
-        $repoWidth = [Math]::Max(10, [int]($available * 0.20))
-        $titleWidth = [Math]::Max(10, ($available - $repoWidth))
+        # Distribute: Repo ~ 30%, Author ~ 70%
+        $repoWidth = [Math]::Max(15, [int]($available * 0.30))
+        $authorWidth = [Math]::Max(10, ($available - $repoWidth))
 
         # Format Output
-        $headerFmt = "{0,-8} {1,-10} {2,-12} {3,-$repoWidth} {4,-$titleWidth}"
-        $header = $headerFmt -f 'Approved', 'Status', 'Created', 'Repo', 'Title'
+        $headerFmt = "{0,-8} {1,-10} {2,-12} {3,-$repoWidth} {4,-$authorWidth}"
+        $header = $headerFmt -f 'Approved', 'Status', 'Created', 'Repo', 'Author'
         Write-Host $header
 
         foreach ($pr in $sortedPrs) {
@@ -409,13 +427,14 @@ do {
             $repo = $pr.Repository
             if ($repo.Length -gt $repoWidth) { $repo = $repo.Substring(0, $repoWidth - 3) + '...' }
 
-            $title = $pr.Title
-            if ($title.Length -gt $titleWidth) { $title = $title.Substring(0, $titleWidth - 3) + '...' }
+            $author = $pr.Author
+            if ($author.Length -gt $authorWidth) { $author = $author.Substring(0, $authorWidth - 3) + '...' }
 
             # Emoji alignment fix: "{0,-7}" pads 1 char to 7 chars (adds 6 spaces). Visual: 2+6=8.
-            $lineFmt = "{0,-7} {1,-10} {2,-12} {3,-$repoWidth} {4,-$titleWidth}"
-            $line = $lineFmt -f $appr, $pr.State, $created, $repo, $title
+            $lineFmt = "{0,-7} {1,-10} {2,-12} {3,-$repoWidth} {4,-$authorWidth}"
+            $line = $lineFmt -f $appr, $pr.State, $created, $repo, $author
             Write-Host $line
+            Write-Host "         $($pr.Title)" -ForegroundColor Cyan
             Write-Host "         $($pr.URL)" -ForegroundColor DarkGray
         }
     }
@@ -424,8 +443,7 @@ do {
         $now = Get-Date
         $next = $now.AddMinutes(15)
         Write-Host ""
-        Write-Host "Last run: $($now.ToString('HH:mm:ss'))" -ForegroundColor DarkGray
-        Write-Host "Next run: $($next.ToString('HH:mm:ss'))" -ForegroundColor DarkGray
+        Write-Host "Last run: $($now.ToString('HH:mm:ss'))  |  Next run: $($next.ToString('HH:mm:ss'))" -ForegroundColor DarkGray
         Start-Sleep -Seconds (15 * 60)
     }
 
