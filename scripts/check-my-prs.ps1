@@ -20,6 +20,12 @@
 
 .PARAMETER BitbucketUser
     Bitbucket User display name or UUID (default: Franz Hemmer).
+
+.PARAMETER Watch
+    Run continuously, refreshing at the specified interval in minutes (default: 15). Works with any mode.
+
+.PARAMETER Interactive
+    After displaying results, enter interactive mode to select and act on PRs.
 #>
 
 [CmdletBinding(DefaultParameterSetName = 'Default')]
@@ -33,6 +39,8 @@ param(
     [string]$GitHubOrg = 'relias-engineering',
     [string]$BitbucketWorkspace = 'relias',
     [string]$BitbucketUser = 'Franz Hemmer',
+    [int]$Watch = 15,
+    [switch]$Interactive,
     [switch]$Help
 )
 
@@ -289,11 +297,85 @@ $sbBitbucket = {
 }
 
 # -----------------------------------------------------------------------------
+# Interactive Mode Function
+# -----------------------------------------------------------------------------
+function Show-InteractiveMenu {
+    param([array]$Prs)
+
+    if (-not $Prs -or $Prs.Count -eq 0) {
+        Write-Host "No PRs to interact with." -ForegroundColor Yellow
+        return
+    }
+
+    $selectedIndex = 0
+    $running = $true
+
+    while ($running) {
+        Clear-Host
+        Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+        Write-Host "  Interactive PR Browser  |  ↑/↓: Navigate  |  Enter: Open  |  C: Copy URL  |  Q: Quit" -ForegroundColor Cyan
+        Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+        Write-Host ""
+
+        for ($i = 0; $i -lt $Prs.Count; $i++) {
+            $pr = $Prs[$i]
+            $appr = if ($pr.Approved) { '✅' } else { '⭕' }
+            $prefix = if ($i -eq $selectedIndex) { '▶ ' } else { '  ' }
+            $bgColor = if ($i -eq $selectedIndex) { 'DarkBlue' } else { $Host.UI.RawUI.BackgroundColor }
+            $fgColor = if ($i -eq $selectedIndex) { 'White' } else { 'Gray' }
+
+            Write-Host "$prefix$appr " -NoNewline -BackgroundColor $bgColor
+            Write-Host "[$($pr.Source)] " -NoNewline -ForegroundColor Yellow -BackgroundColor $bgColor
+            Write-Host "$($pr.Repository) " -NoNewline -ForegroundColor Green -BackgroundColor $bgColor
+            Write-Host "#$($pr.ID)" -ForegroundColor Magenta -BackgroundColor $bgColor
+
+            if ($i -eq $selectedIndex) {
+                Write-Host "     $($pr.Title)" -ForegroundColor Cyan
+                Write-Host "     $($pr.URL)" -ForegroundColor DarkGray
+                Write-Host "     Author: $($pr.Author)  |  State: $($pr.State)  |  Created: $(if ($pr.Created) { ([DateTime]$pr.Created).ToString('yyyy-MM-dd') } else { 'N/A' })" -ForegroundColor DarkGray
+                Write-Host ""
+            }
+        }
+
+        $key = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+
+        switch ($key.VirtualKeyCode) {
+            38 { # Up Arrow
+                $selectedIndex = if ($selectedIndex -gt 0) { $selectedIndex - 1 } else { $Prs.Count - 1 }
+            }
+            40 { # Down Arrow
+                $selectedIndex = if ($selectedIndex -lt $Prs.Count - 1) { $selectedIndex + 1 } else { 0 }
+            }
+            13 { # Enter - Open in browser
+                $url = $Prs[$selectedIndex].URL
+                Start-Process $url
+                Write-Host "`nOpened: $url" -ForegroundColor Green
+                Start-Sleep -Milliseconds 500
+            }
+            67 { # C - Copy URL
+                $url = $Prs[$selectedIndex].URL
+                Set-Clipboard -Value $url
+                Write-Host "`nCopied to clipboard: $url" -ForegroundColor Green
+                Start-Sleep -Milliseconds 500
+            }
+            81 { # Q - Quit
+                $running = $false
+            }
+            27 { # Escape - Quit
+                $running = $false
+            }
+        }
+    }
+}
+
+# -----------------------------------------------------------------------------
 # Main Execution
 # -----------------------------------------------------------------------------
 
-$runLoop = $PSCmdlet.ParameterSetName -eq 'Default'
-if (-not $runLoop) { Clear-Host }
+$watchSpecified = $PSBoundParameters.ContainsKey('Watch')
+$runLoop = $watchSpecified -or $PSCmdlet.ParameterSetName -eq 'Default'
+$refreshMinutes = $Watch
+if (-not $runLoop -and -not $Interactive) { Clear-Host }
 
 # State tracking for notifications
 $knownPrKeys = [System.Collections.Generic.HashSet[string]]::new()
@@ -440,11 +522,36 @@ do {
     }
 
     if ($runLoop) {
-        $now = Get-Date
-        $next = $now.AddMinutes(15)
+        if ($Interactive -and $allPrs.Count -gt 0) {
+            Write-Host ""
+            Write-Host "Press I for interactive mode, or wait for next refresh..." -ForegroundColor DarkGray
+            $waitSeconds = $refreshMinutes * 60
+            $elapsed = 0
+            while ($elapsed -lt $waitSeconds) {
+                if ([Console]::KeyAvailable) {
+                    $key = [Console]::ReadKey($true)
+                    if ($key.Key -eq 'I') {
+                        Show-InteractiveMenu -Prs $sortedPrs
+                        break
+                    }
+                }
+                Start-Sleep -Milliseconds 500
+                $elapsed += 0.5
+            }
+        }
+        else {
+            $now = Get-Date
+            $next = $now.AddMinutes($refreshMinutes)
+            Write-Host ""
+            Write-Host "Last run: $($now.ToString('HH:mm:ss'))  |  Next run: $($next.ToString('HH:mm:ss'))" -ForegroundColor DarkGray
+            Start-Sleep -Seconds ($refreshMinutes * 60)
+        }
+    }
+    elseif ($Interactive -and $allPrs.Count -gt 0) {
         Write-Host ""
-        Write-Host "Last run: $($now.ToString('HH:mm:ss'))  |  Next run: $($next.ToString('HH:mm:ss'))" -ForegroundColor DarkGray
-        Start-Sleep -Seconds (15 * 60)
+        Write-Host "Press any key to enter interactive mode..." -ForegroundColor DarkGray
+        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+        Show-InteractiveMenu -Prs $sortedPrs
     }
 
 } while ($runLoop)
