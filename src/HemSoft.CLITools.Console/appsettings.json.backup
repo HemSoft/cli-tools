@@ -5,7 +5,7 @@
     "ScriptsDirectory": "scripts",
     "CliTools": [
       {
-        "Name": "Contract Minimums (cm)",
+        "Name": "Contract Minimums",
         "Description": "Fetches contracts from the eggcoop.org API and generates commands for checking minimums",
         "Command": "cm.ps1",
         "Version": "1.0.0",
@@ -21,7 +21,7 @@
         }
       },
       {
-        "Name": "Microsoft Edit (edit)",
+        "Name": "Microsoft Edit",
         "Description": "Open Microsoft's command-line text editor for creating and editing files",
         "Command": "edit",
         "Version": "1.0.0",
@@ -37,7 +37,7 @@
         "Parameters": {}
       },
       {
-        "Name": "Git UI *lazygit",
+        "Name": "Git UI",
         "Description": "Launch lazygit terminal UI for Git operations",
         "Command": "lazygit",
         "Version": "1.0.0",
@@ -73,7 +73,7 @@
         "Parameters": {}
       },
       {
-        "Name": "Midnight Commander (mc)",
+        "Name": "Midnight Commander",
         "Description": "Dual-pane text-based file manager with built-in editor and archive support",
         "Command": "mc",
         "Version": "1.0.0",
@@ -96,7 +96,7 @@
         ]
       },
       {
-        "Name": "Count Lines Of Code (cloc .)",
+        "Name": "Count Lines Of Code",
         "Description": "Count Lines Of Code",
         "Command": "cloc",
         "Version": "1.0.0",
@@ -112,7 +112,7 @@
         ]
       },
       {
-        "Name": "ripgrep (rg <search-txt>)",
+        "Name": "ripgrep",
         "Description": "Fast search for text in files.",
         "Command": "rg",
         "Version": "1.0.0",
@@ -128,7 +128,7 @@
         ]
       },
       {
-        "Name": "RAG POC (rag-poc)",
+        "Name": "RAG POC",
         "Description": "RAG POC",
         "Command": "rag-poc.ps1",
         "Version": "1.0.0",
@@ -136,7 +136,7 @@
         "Parameters": {}
       },
       {
-        "Name": "Slurp (slurp <url))",
+        "Name": "Slurp",
         "Description": "Scrape and compile website documentation into markdown files",
         "Command": "slurp.cmd",
         "Version": "1.0.0",
@@ -161,7 +161,7 @@
       },
       {
         "Name": "glow",
-        "Description": "Markdown Viewer (glow)",
+        "Description": "Markdown Viewer",
         "Command": "glow",
         "Version": "1.0.0",
         "IsInteractive": true,
@@ -179,21 +179,6 @@
             "Name": "json-file",
             "Required": true,
             "Prompt": "JSON file to view"
-          }
-        ]
-      },
-      {
-        "Name": "Markdown Viewer (mt)",
-        "Description": "View Markdown files in a Windows App MarkText",
-        "Command": "mt",
-        "Version": "1.0.0",
-        "IsInteractive": false,
-        "Parameters": {},
-        "RuntimeArguments": [
-          {
-            "Prompt": "Markdown file",
-            "Name": "Markdown file",
-            "Required": true
           }
         ]
       }

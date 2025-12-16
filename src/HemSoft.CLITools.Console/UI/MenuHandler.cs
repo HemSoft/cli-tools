@@ -109,8 +109,8 @@ public class MenuHandler(CliToolService cliToolService, ConfigurationService con
         choices.Add("[dim]─────────────────────────────────────────────────────────[/]");
         displayMap["[dim]─────────────────────────────────────────────────────────[/]"] = "___SEPARATOR___";
 
-        // Create formatted display strings with descriptions
-        foreach (var tool in cliTools)
+        // Create formatted display strings with descriptions (sorted alphabetically)
+        foreach (var tool in cliTools.OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase))
         {
             string displayText = $"[green]{tool.Name}[/] - [grey]{tool.Description}[/]";
             displayMap[displayText] = tool.Name;
@@ -123,7 +123,7 @@ public class MenuHandler(CliToolService cliToolService, ConfigurationService con
 
         var prompt = new SelectionPrompt<string>()
             .Title("Select a CLI tool to run:")
-            .PageSize(10)
+            .PageSize(20)
             .HighlightStyle(new Style(Color.Blue))
             .MoreChoicesText("[grey](Move up and down to reveal more tools)[/]")
             .AddChoices(choices);
