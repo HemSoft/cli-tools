@@ -114,24 +114,27 @@ $sbGitHub = {
     return $prs | ForEach-Object {
         $repoName = ($_.url -split '/')[-3]
 
-        $isApproved = $false
-        if ($currentUser) {
-            $lastReview = $_.reviews | Where-Object { $_.author.login -eq $currentUser } | Sort-Object submittedAt -Descending | Select-Object -First 1
-            if ($lastReview.state -eq 'APPROVED') { $isApproved = $true }
+        # Count unique approvals - get the latest review per author and count those that are APPROVED
+        $approvalCount = 0
+        if ($_.reviews) {
+            $reviewerGroups = $_.reviews | Group-Object { $_.author.login }
+            foreach ($group in $reviewerGroups) {
+                $latestReview = $group.Group | Sort-Object submittedAt -Descending | Select-Object -First 1
+                if ($latestReview.state -eq 'APPROVED') { $approvalCount++ }
+            }
         }
-        if (-not $currentUser -and $Mode -like 'Approved*') { $isApproved = $true }
 
         [PSCustomObject]@{
-            Source     = "GitHub"
-            Repository = $repoName
-            ID         = $_.number
-            Title      = $_.title
-            Author     = $_.author.login
-            URL        = $_.url
-            State      = $_.state
-            Approved   = $isApproved
-            Created    = if ($_.createdAt) { Get-Date $_.createdAt } else { $null }
-            Date       = if ($_.mergedAt) { $_.mergedAt } else { $null }
+            Source        = "GitHub"
+            Repository    = $repoName
+            ID            = $_.number
+            Title         = $_.title
+            Author        = $_.author.login
+            URL           = $_.url
+            State         = $_.state
+            ApprovalCount = $approvalCount
+            Created       = if ($_.createdAt) { Get-Date $_.createdAt } else { $null }
+            Date          = if ($_.mergedAt) { $_.mergedAt } else { $null }
         }
     }
 }
@@ -273,17 +276,23 @@ $sbBitbucket = {
                     }
 
                     if ($include) {
+                        # Count all approvals from participants
+                        $approvalCount = 0
+                        if ($pr.participants) {
+                            $approvalCount = ($pr.participants | Where-Object { $_.approved -eq $true }).Count
+                        }
+
                         $bbResults += [PSCustomObject]@{
-                            Source     = "Bitbucket"
-                            Repository = $repo.name
-                            ID         = $pr.id
-                            Title      = $pr.title
-                            Author     = $pr.author.display_name
-                            URL        = $pr.links.html.href
-                            State      = $pr.state
-                            Approved   = [bool]$meAsParticipant.approved
-                            Created    = if ($pr.created_on) { Get-Date $pr.created_on } else { $null }
-                            Date       = if ($pr.merged_on) { $pr.merged_on } else { $pr.updated_on }
+                            Source        = "Bitbucket"
+                            Repository    = $repo.name
+                            ID            = $pr.id
+                            Title         = $pr.title
+                            Author        = $pr.author.display_name
+                            URL           = $pr.links.html.href
+                            State         = $pr.state
+                            ApprovalCount = $approvalCount
+                            Created       = if ($pr.created_on) { Get-Date $pr.created_on } else { $null }
+                            Date          = if ($pr.merged_on) { $pr.merged_on } else { $pr.updated_on }
                         }
                     }
                 }
@@ -319,7 +328,7 @@ function Show-InteractiveMenu {
 
         for ($i = 0; $i -lt $Prs.Count; $i++) {
             $pr = $Prs[$i]
-            $appr = if ($pr.Approved) { '✅' } else { '⭕' }
+            $appr = if ($pr.ApprovalCount -gt 0) { "$($pr.ApprovalCount)✅" } else { '⭕' }
             $prefix = if ($i -eq $selectedIndex) { '▶ ' } else { '  ' }
             $bgColor = if ($i -eq $selectedIndex) { 'DarkBlue' } else { $Host.UI.RawUI.BackgroundColor }
             $fgColor = if ($i -eq $selectedIndex) { 'White' } else { 'Gray' }
@@ -503,7 +512,7 @@ do {
         Write-Host $header
 
         foreach ($pr in $sortedPrs) {
-            $appr = if ($pr.Approved) { '✅' } else { '⭕' }
+            $appr = if ($pr.ApprovalCount -gt 0) { "$($pr.ApprovalCount)✅" } else { '⭕' }
             $created = if ($pr.Created) { ([DateTime]$pr.Created).ToString('yyyy-MM-dd') } else { '' }
 
             $repo = $pr.Repository
