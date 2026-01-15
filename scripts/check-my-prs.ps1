@@ -22,10 +22,28 @@
     Bitbucket User display name or UUID (default: Franz Hemmer).
 
 .PARAMETER Watch
-    Run continuously, refreshing at the specified interval in minutes (default: 15). Works with any mode.
+    Refresh interval in minutes when running in watch mode (default: 15).
+
+.PARAMETER Once
+    Run once and exit instead of continuous watch mode.
 
 .PARAMETER Interactive
-    After displaying results, enter interactive mode to select and act on PRs.
+    Enable interactive PR browser (press 'I' during watch mode to browse PRs).
+
+.PARAMETER SkipBitbucket
+    Skip Bitbucket checks (GitHub only).
+
+.EXAMPLE
+    .\check-my-prs.ps1 -Once
+    List all PRs once and exit.
+
+.EXAMPLE
+    .\check-my-prs.ps1
+    Run in watch mode, refreshing every 15 minutes.
+
+.EXAMPLE
+    .\check-my-prs.ps1 -ApprovedAndOpen
+    List PRs you've approved that are still open.
 #>
 
 [CmdletBinding(DefaultParameterSetName = 'Default')]
@@ -40,13 +58,30 @@ param(
     [string]$BitbucketWorkspace = 'relias',
     [string]$BitbucketUser = 'Franz Hemmer',
     [int]$Watch = 15,
-    [switch]$Interactive,
+    [switch]$Once,
+    [switch]$SkipBitbucket,
     [switch]$Help
 )
 
 if ($Help) {
     Get-Help $PSCommandPath -Detailed
     exit 0
+}
+
+# Check for and install PwshSpectreConsole if not available
+if (-not (Get-Module -ListAvailable -Name PwshSpectreConsole)) {
+    Write-Host "Installing PwshSpectreConsole module for better UI..." -ForegroundColor Yellow
+    Install-Module -Name PwshSpectreConsole -Scope CurrentUser -Force -AllowClobber
+}
+Import-Module PwshSpectreConsole
+
+# Auto-load User environment variables if not present in session
+# (Handles VS Code terminals that don't inherit updated User env vars)
+if (-not $env:BITBUCKET_API_KEY) {
+    $env:BITBUCKET_API_KEY = [System.Environment]::GetEnvironmentVariable('BITBUCKET_API_KEY', 'User')
+}
+if (-not $env:BITBUCKET_USERNAME) {
+    $env:BITBUCKET_USERNAME = [System.Environment]::GetEnvironmentVariable('BITBUCKET_USERNAME', 'User')
 }
 
 # Determine Mode
@@ -62,67 +97,95 @@ $sbGitHub = {
 
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { return @() }
 
-    # Get current user
+    # Get current user login
     $currentUser = gh api user --jq .login 2>$null
-
-    # Build search queries - for default mode, search both authored and review-requested PRs
-    $searchQueries = @()
-    if ($Mode -eq 'ApprovedAndOpen') {
-        $searchQueries += "org:$Org review:approved reviewer:@me is:open"
-    }
-    elseif ($Mode -eq 'ApprovedAndMergedSince') {
-        $searchQueries += "org:$Org review:approved reviewer:@me is:merged merged:>=$DateStr"
-    }
-    else {
-        # Default mode: show both PRs I authored AND PRs where I'm a reviewer
-        $searchQueries += "org:$Org author:@me is:open"
-        $searchQueries += "org:$Org reviewer:@me is:open"
-    }
 
     $allPrs = @()
     $seenUrls = @{}
 
-    foreach ($searchQuery in $searchQueries) {
-        $ghOutput = gh pr list --search "$searchQuery" --json number,title,url,state,mergedAt,createdAt,author,reviews --limit 100 2>&1
+    # Helper function to fetch PR details including reviews and assignees
+    function Get-PrDetails {
+        param($PrUrl)
+        $detailsJson = gh pr view $PrUrl --json number,title,url,state,mergedAt,createdAt,author,reviews,assignees 2>$null
+        if ($LASTEXITCODE -eq 0 -and $detailsJson) {
+            return $detailsJson | ConvertFrom-Json
+        }
+        return $null
+    }
+
+    # Use gh search prs which works reliably with assignee/reviewed-by/author filters
+    # Unlike gh pr list --search, these actually return correct results
+    $searchCommands = @()
+
+    if ($Mode -eq 'ApprovedAndOpen') {
+        # PRs I reviewed that are approved and still open
+        $searchCommands += @{ Args = @('--reviewed-by=@me', '--state=open', "--owner=$Org") }
+    }
+    elseif ($Mode -eq 'ApprovedAndMergedSince') {
+        # PRs I reviewed that were merged since the date
+        $searchCommands += @{ Args = @('--reviewed-by=@me', '--state=merged', "--owner=$Org", "--merged=>=$DateStr") }
+    }
+    else {
+        # Default mode: PRs I authored, am assigned to, have reviewed, or am requested to review
+        $searchCommands += @{ Args = @('--author=@me', '--state=open', "--owner=$Org") }
+        $searchCommands += @{ Args = @('--assignee=@me', '--state=open', "--owner=$Org") }
+        $searchCommands += @{ Args = @('--reviewed-by=@me', '--state=open', "--owner=$Org") }
+        $searchCommands += @{ Args = @('--review-requested=@me', '--state=open', "--owner=$Org") }
+    }
+
+    foreach ($cmd in $searchCommands) {
+        $args = @('search', 'prs') + $cmd.Args + @('--json', 'number,title,url,repository', '--limit', '100')
+        $ghOutput = & gh @args 2>&1
+
         if ($LASTEXITCODE -ne 0) {
             Write-Error "GitHub CLI error: $ghOutput"
             continue
         }
 
         try {
-            $prs = $ghOutput | ConvertFrom-Json
+            $searchResults = $ghOutput | ConvertFrom-Json
         } catch {
             if ([string]::IsNullOrWhiteSpace($ghOutput)) { continue }
             Write-Error "Failed to parse GitHub JSON: $_"
             continue
         }
 
-        if ($prs) {
-            if ($prs -isnot [array]) { $prs = @($prs) }
-            foreach ($pr in $prs) {
-                if (-not $seenUrls.ContainsKey($pr.url)) {
-                    $seenUrls[$pr.url] = $true
-                    $allPrs += $pr
+        if ($searchResults) {
+            if ($searchResults -isnot [array]) { $searchResults = @($searchResults) }
+            foreach ($result in $searchResults) {
+                if (-not $seenUrls.ContainsKey($result.url)) {
+                    $seenUrls[$result.url] = $true
+                    # Fetch full PR details to get reviews
+                    $prDetails = Get-PrDetails -PrUrl $result.url
+                    if ($prDetails) {
+                        $allPrs += $prDetails
+                    }
                 }
             }
         }
     }
 
-    $prs = $allPrs
-    if (-not $prs) { return @() }
+    if (-not $allPrs) { return @() }
 
-    return $prs | ForEach-Object {
+    return $allPrs | ForEach-Object {
         $repoName = ($_.url -split '/')[-3]
 
-        # Count unique approvals - get the latest review per author and count those that are APPROVED
+        # Count unique approvals and check if current user approved
         $approvalCount = 0
+        $iApproved = $false
         if ($_.reviews) {
             $reviewerGroups = $_.reviews | Group-Object { $_.author.login }
             foreach ($group in $reviewerGroups) {
                 $latestReview = $group.Group | Sort-Object submittedAt -Descending | Select-Object -First 1
-                if ($latestReview.state -eq 'APPROVED') { $approvalCount++ }
+                if ($latestReview.state -eq 'APPROVED') {
+                    $approvalCount++
+                    if ($latestReview.author.login -eq $currentUser) { $iApproved = $true }
+                }
             }
         }
+
+        # Count assignees
+        $assigneeCount = if ($_.assignees) { $_.assignees.Count } else { 0 }
 
         [PSCustomObject]@{
             Source        = "GitHub"
@@ -133,6 +196,8 @@ $sbGitHub = {
             URL           = $_.url
             State         = $_.state
             ApprovalCount = $approvalCount
+            AssigneeCount = $assigneeCount
+            IApproved     = $iApproved
             Created       = if ($_.createdAt) { Get-Date $_.createdAt } else { $null }
             Date          = if ($_.mergedAt) { $_.mergedAt } else { $null }
         }
@@ -145,11 +210,8 @@ $sbGitHub = {
 $sbBitbucket = {
     param($Workspace, $Mode, $DateStr, $Token, $Username)
 
-    $env:BITBUCKET_API_TOKEN = $Token
-    $env:BITBUCKET_USERNAME = $Username
-
     if ([string]::IsNullOrWhiteSpace($Token)) {
-        Write-Warning "Bitbucket Token is missing. Skipping Bitbucket checks."
+        Write-Warning "BITBUCKET_API_KEY is missing. Skipping Bitbucket checks."
         return @()
     }
 
@@ -276,11 +338,15 @@ $sbBitbucket = {
                     }
 
                     if ($include) {
-                        # Count all approvals from participants
+                        # Count all approvals from participants and check if I approved
                         $approvalCount = 0
+                        $iApproved = $false
                         if ($pr.participants) {
                             $approvalCount = ($pr.participants | Where-Object { $_.approved -eq $true }).Count
+                            if ($meAsParticipant -and $meAsParticipant.approved) { $iApproved = $true }
                         }
+                        # Count reviewers
+                        $reviewerCount = if ($pr.reviewers) { $pr.reviewers.Count } else { 0 }
 
                         $bbResults += [PSCustomObject]@{
                             Source        = "Bitbucket"
@@ -291,6 +357,8 @@ $sbBitbucket = {
                             URL           = $pr.links.html.href
                             State         = $pr.state
                             ApprovalCount = $approvalCount
+                            AssigneeCount = $reviewerCount
+                            IApproved     = $iApproved
                             Created       = if ($pr.created_on) { Get-Date $pr.created_on } else { $null }
                             Date          = if ($pr.merged_on) { $pr.merged_on } else { $pr.updated_on }
                         }
@@ -306,75 +374,63 @@ $sbBitbucket = {
 }
 
 # -----------------------------------------------------------------------------
-# Interactive Mode Function
+# Display Function with Spectre.Console
 # -----------------------------------------------------------------------------
-function Show-InteractiveMenu {
+function Show-PRTable {
     param([array]$Prs)
 
     if (-not $Prs -or $Prs.Count -eq 0) {
-        Write-Host "No PRs to interact with." -ForegroundColor Yellow
+        Write-SpectreHost "[yellow]✅ All clear! No PRs found.[/]"
         return
     }
 
-    $selectedIndex = 0
-    $running = $true
-
-    while ($running) {
-        Clear-Host
-        Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
-        Write-Host "  Interactive PR Browser  |  ↑/↓: Navigate  |  Enter: Open  |  C: Copy URL  |  Q: Quit" -ForegroundColor Cyan
-        Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
-        Write-Host ""
-
-        for ($i = 0; $i -lt $Prs.Count; $i++) {
-            $pr = $Prs[$i]
-            $appr = if ($pr.ApprovalCount -gt 0) { "$($pr.ApprovalCount)✅" } else { '⭕' }
-            $prefix = if ($i -eq $selectedIndex) { '▶ ' } else { '  ' }
-            $bgColor = if ($i -eq $selectedIndex) { 'DarkBlue' } else { $Host.UI.RawUI.BackgroundColor }
-            $fgColor = if ($i -eq $selectedIndex) { 'White' } else { 'Gray' }
-
-            Write-Host "$prefix$appr " -NoNewline -BackgroundColor $bgColor
-            Write-Host "[$($pr.Source)] " -NoNewline -ForegroundColor Yellow -BackgroundColor $bgColor
-            Write-Host "$($pr.Repository) " -NoNewline -ForegroundColor Green -BackgroundColor $bgColor
-            Write-Host "#$($pr.ID)" -ForegroundColor Magenta -BackgroundColor $bgColor
-
-            if ($i -eq $selectedIndex) {
-                Write-Host "     $($pr.Title)" -ForegroundColor Cyan
-                Write-Host "     $($pr.URL)" -ForegroundColor DarkGray
-                Write-Host "     Author: $($pr.Author)  |  State: $($pr.State)  |  Created: $(if ($pr.Created) { ([DateTime]$pr.Created).ToString('yyyy-MM-dd') } else { 'N/A' })" -ForegroundColor DarkGray
-                Write-Host ""
-            }
+    Clear-Host
+    
+    # Create table data
+    $tableData = @()
+    foreach ($pr in $Prs) {
+        $total = if ($pr.AssigneeCount -gt 0) { $pr.AssigneeCount } else { '?' }
+        $myApproval = if ($pr.IApproved) { '✅' } else { '' }
+        $appr = "$($pr.ApprovalCount)/$total$myApproval"
+        
+        # Abbreviate source
+        $src = switch ($pr.Source) {
+            'GitHub'    { 'GH' }
+            'Bitbucket' { 'BB' }
+            default     { $pr.Source }
         }
-
-        $key = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
-
-        switch ($key.VirtualKeyCode) {
-            38 { # Up Arrow
-                $selectedIndex = if ($selectedIndex -gt 0) { $selectedIndex - 1 } else { $Prs.Count - 1 }
-            }
-            40 { # Down Arrow
-                $selectedIndex = if ($selectedIndex -lt $Prs.Count - 1) { $selectedIndex + 1 } else { 0 }
-            }
-            13 { # Enter - Open in browser
-                $url = $Prs[$selectedIndex].URL
-                Start-Process $url
-                Write-Host "`nOpened: $url" -ForegroundColor Green
-                Start-Sleep -Milliseconds 500
-            }
-            67 { # C - Copy URL
-                $url = $Prs[$selectedIndex].URL
-                Set-Clipboard -Value $url
-                Write-Host "`nCopied to clipboard: $url" -ForegroundColor Green
-                Start-Sleep -Milliseconds 500
-            }
-            81 { # Q - Quit
-                $running = $false
-            }
-            27 { # Escape - Quit
-                $running = $false
-            }
+        
+        # Truncate title to ~35 characters
+        $title = $pr.Title
+        if ($title.Length -gt 35) {
+            $title = $title.Substring(0, 32) + '...'
+        }
+        
+        # Escape any brackets in the title for Spectre markup
+        $escapedTitle = $title -replace '\[', '[[' -replace '\]', ']]'
+        
+        # Create clickable link using Spectre markup
+        $titleLink = "[link=$($pr.URL)]$escapedTitle[/]"
+        
+        # Truncate author if too long
+        $author = $pr.Author
+        if ($author.Length -gt 15) {
+            $author = $author.Substring(0, 12) + '...'
+        }
+        
+        $tableData += [PSCustomObject]@{
+            '✓'    = $appr
+            Src    = $src
+            Repo   = $pr.Repository
+            PR     = $pr.ID
+            Title  = $titleLink
+            Author = $author
+            Date   = if ($pr.Created) { ([DateTime]$pr.Created).ToString('MM-dd') } else { 'N/A' }
         }
     }
+    
+    # Display table with -AllowMarkup to enable clickable links
+    $tableData | Format-SpectreTable -Border Rounded -Title "Pull Requests" -AllowMarkup
 }
 
 # -----------------------------------------------------------------------------
@@ -382,42 +438,37 @@ function Show-InteractiveMenu {
 # -----------------------------------------------------------------------------
 
 $watchSpecified = $PSBoundParameters.ContainsKey('Watch')
-$runLoop = $watchSpecified -or $PSCmdlet.ParameterSetName -eq 'Default'
+$runLoop = -not $Once -and ($watchSpecified -or $PSCmdlet.ParameterSetName -eq 'Default')
 $refreshMinutes = $Watch
-if (-not $runLoop -and -not $Interactive) { Clear-Host }
 
 # State tracking for notifications
 $knownPrKeys = [System.Collections.Generic.HashSet[string]]::new()
 $firstRun = $true
 
 do {
-    if ($runLoop) { Clear-Host }
+    if ($runLoop -and -not $Once) { Clear-Host }
 
     # Start Jobs
     $dateArg = if ($ApprovedAndMergedSince) { $ApprovedAndMergedSince.ToString("yyyy-MM-dd") } else { (Get-Date).ToString("yyyy-MM-dd") }
 
     $jGH = Start-Job -ScriptBlock $sbGitHub -ArgumentList $GitHubOrg, $mode, $dateArg
-    $jBB = Start-Job -ScriptBlock $sbBitbucket -ArgumentList $BitbucketWorkspace, $mode, $dateArg, $env:BITBUCKET_API_TOKEN, $env:BITBUCKET_USERNAME
-
-    # Spinner
-    $sp = @('|', '/', '-', '\')
-    $idx = 0
-    Write-Host -NoNewline " " # Initial space
-    while ($jGH.State -eq 'Running' -or $jBB.State -eq 'Running') {
-        Write-Host -NoNewline "`b$($sp[$idx])"
-        Start-Sleep -Milliseconds 100
-        $idx = ($idx + 1) % $sp.Length
+    $jBB = $null
+    if (-not $SkipBitbucket) {
+        $jBB = Start-Job -ScriptBlock $sbBitbucket -ArgumentList $BitbucketWorkspace, $mode, $dateArg, $env:BITBUCKET_API_KEY, $env:BITBUCKET_USERNAME
     }
-    Write-Host -NoNewline "`b " # Clear spinner
-    Write-Host "" # Newline
+
+    # Wait for jobs to complete
+    $null = Wait-Job $jGH
+    if ($jBB) { $null = Wait-Job $jBB }
 
     # Collect Results
     $ghPrs = Receive-Job $jGH -ErrorAction SilentlyContinue
-    $bbPrs = Receive-Job $jBB -ErrorAction SilentlyContinue
+    $bbPrs = if ($jBB) { Receive-Job $jBB -ErrorAction SilentlyContinue } else { @() }
     $jobErrors = @()
     $jobErrors += $jGH.ChildJobs[0].Error
-    $jobErrors += $jBB.ChildJobs[0].Error
-    Remove-Job $jGH, $jBB
+    if ($jBB) { $jobErrors += $jBB.ChildJobs[0].Error }
+    Remove-Job $jGH
+    if ($jBB) { Remove-Job $jBB }
 
     if ($jobErrors) {
         $rateLimitErrors = $jobErrors | Where-Object { $_ -match "Rate limit" -or $_ -match "429" }
@@ -485,82 +536,23 @@ do {
             Write-Host "❌ No PRs found, but errors occurred (see above)." -ForegroundColor Red
         }
         else {
-            Write-Host "✅ All clear!" -ForegroundColor Green
+            Write-SpectreHost "[green]✅ All clear![/]"
         }
     }
     else {
         # Sort
         $sortedPrs = $allPrs | Sort-Object Source, Repository, ID
 
-        # Calculate Dynamic Widths
-        $termWidth = 120
-        try { $termWidth = $Host.UI.RawUI.WindowSize.Width } catch {}
-        if (-not $termWidth) { $termWidth = 120 }
-
-        # Fixed columns: Approved(8) + Status(11) + Created(13) + Spacer(1) = 33 chars
-        # Reserve 1 char buffer to prevent wrapping
-        $available = $termWidth - 34
-        if ($available -lt 30) { $available = 30 }
-
-        # Distribute: Repo ~ 30%, Author ~ 70%
-        $repoWidth = [Math]::Max(15, [int]($available * 0.30))
-        $authorWidth = [Math]::Max(10, ($available - $repoWidth))
-
-        # Format Output
-        $headerFmt = "{0,-8} {1,-10} {2,-12} {3,-$repoWidth} {4,-$authorWidth}"
-        $header = $headerFmt -f 'Approved', 'Status', 'Created', 'Repo', 'Author'
-        Write-Host $header
-
-        foreach ($pr in $sortedPrs) {
-            $appr = if ($pr.ApprovalCount -gt 0) { "$($pr.ApprovalCount)✅" } else { '⭕' }
-            $created = if ($pr.Created) { ([DateTime]$pr.Created).ToString('yyyy-MM-dd') } else { '' }
-
-            $repo = $pr.Repository
-            if ($repo.Length -gt $repoWidth) { $repo = $repo.Substring(0, $repoWidth - 3) + '...' }
-
-            $author = $pr.Author
-            if ($author.Length -gt $authorWidth) { $author = $author.Substring(0, $authorWidth - 3) + '...' }
-
-            # Emoji alignment fix: "{0,-7}" pads 1 char to 7 chars (adds 6 spaces). Visual: 2+6=8.
-            $lineFmt = "{0,-7} {1,-10} {2,-12} {3,-$repoWidth} {4,-$authorWidth}"
-            $line = $lineFmt -f $appr, $pr.State, $created, $repo, $author
-            Write-Host $line
-            Write-Host "         $($pr.Title)" -ForegroundColor Cyan
-            Write-Host "         $($pr.URL)" -ForegroundColor DarkGray
-        }
+        # Display beautiful Spectre table
+        Show-PRTable -Prs $sortedPrs
     }
 
     if ($runLoop) {
-        if ($Interactive -and $allPrs.Count -gt 0) {
-            Write-Host ""
-            Write-Host "Press I for interactive mode, or wait for next refresh..." -ForegroundColor DarkGray
-            $waitSeconds = $refreshMinutes * 60
-            $elapsed = 0
-            while ($elapsed -lt $waitSeconds) {
-                if ([Console]::KeyAvailable) {
-                    $key = [Console]::ReadKey($true)
-                    if ($key.Key -eq 'I') {
-                        Show-InteractiveMenu -Prs $sortedPrs
-                        break
-                    }
-                }
-                Start-Sleep -Milliseconds 500
-                $elapsed += 0.5
-            }
-        }
-        else {
-            $now = Get-Date
-            $next = $now.AddMinutes($refreshMinutes)
-            Write-Host ""
-            Write-Host "Last run: $($now.ToString('HH:mm:ss'))  |  Next run: $($next.ToString('HH:mm:ss'))" -ForegroundColor DarkGray
-            Start-Sleep -Seconds ($refreshMinutes * 60)
-        }
-    }
-    elseif ($Interactive -and $allPrs.Count -gt 0) {
+        $now = Get-Date
+        $next = $now.AddMinutes($refreshMinutes)
         Write-Host ""
-        Write-Host "Press any key to enter interactive mode..." -ForegroundColor DarkGray
-        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
-        Show-InteractiveMenu -Prs $sortedPrs
+        Write-SpectreHost "[grey]Last run: $($now.ToString('HH:mm:ss'))  |  Next run: $($next.ToString('HH:mm:ss'))[/]"
+        Start-Sleep -Seconds ($refreshMinutes * 60)
     }
 
 } while ($runLoop)
