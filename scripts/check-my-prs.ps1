@@ -68,6 +68,9 @@ if ($Help) {
     exit 0
 }
 
+# Set UTF-8 encoding to avoid OEM/Unicode warnings from Spectre.Console
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
 # Check for and install PwshSpectreConsole if not available
 if (-not (Get-Module -ListAvailable -Name PwshSpectreConsole)) {
     Write-Host "Installing PwshSpectreConsole module for better UI..." -ForegroundColor Yellow
@@ -400,10 +403,10 @@ function Show-PRTable {
             default     { $pr.Source }
         }
         
-        # Truncate title to ~35 characters
+        # Truncate title to ~60 characters for better column balance
         $title = $pr.Title
-        if ($title.Length -gt 35) {
-            $title = $title.Substring(0, 32) + '...'
+        if ($title.Length -gt 60) {
+            $title = $title.Substring(0, 57) + '...'
         }
         
         # Escape any brackets in the title for Spectre markup
@@ -412,25 +415,23 @@ function Show-PRTable {
         # Create clickable link using Spectre markup
         $titleLink = "[link=$($pr.URL)]$escapedTitle[/]"
         
-        # Truncate author if too long
-        $author = $pr.Author
-        if ($author.Length -gt 15) {
-            $author = $author.Substring(0, 12) + '...'
-        }
+        # Shorten author name (remove -relias suffix common in work accounts)
+        $author = $pr.Author -replace '-relias$', ''
         
         $tableData += [PSCustomObject]@{
-            '✓'    = $appr
-            Src    = $src
-            Repo   = $pr.Repository
-            PR     = $pr.ID
-            Title  = $titleLink
-            Author = $author
-            Date   = if ($pr.Created) { ([DateTime]$pr.Created).ToString('MM-dd') } else { 'N/A' }
+            Approved   = $appr
+            Source     = $src
+            Repository = $pr.Repository
+            '#'        = $pr.ID
+            Title      = $titleLink
+            Author     = $author
+            Date       = if ($pr.Created) { ([DateTime]$pr.Created).ToString('yyyy-MM-dd') } else { 'N/A' }
         }
     }
     
-    # Display table with -AllowMarkup to enable clickable links
-    $tableData | Format-SpectreTable -Border Rounded -Title "Pull Requests" -AllowMarkup
+    # Display table with clickable links and full terminal width
+    # Use -HideHeaders:$false to ensure headers display properly
+    $tableData | Format-SpectreTable -Border Rounded -Title "[cyan]Pull Requests[/]" -AllowMarkup -Expand
 }
 
 # -----------------------------------------------------------------------------
