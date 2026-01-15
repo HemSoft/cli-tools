@@ -1,7 +1,6 @@
 # cm.ps1
-# Version: 1.0.0 - DST-aware scheduling
+# Version: 1.2.0 - Added Bearer token authentication for EggCoop API
 
-# Define parameters with default values that can be overridden from configuration
 param(
     [string]$ApiUrl = "https://eggcoop.org/api/contracts",
     [string]$PageSize = "20",
@@ -13,16 +12,11 @@ param(
     [switch]$Debug = $false
 )
 
-# Function to write debug output only when Debug is enabled
 function Write-DebugOutput {
     param([string]$Message)
-
-    if ($Debug) {
-        Write-Output $Message
-    }
+    if ($Debug) { Write-Output $Message }
 }
 
-# Display the parameters being used (only in debug mode)
 Write-DebugOutput "Using the following parameters:"
 Write-DebugOutput "  API URL: $ApiUrl"
 Write-DebugOutput "  Page Size: $PageSize"
@@ -33,36 +27,32 @@ Write-DebugOutput "  Coop Flag: $CoopFlag"
 Write-DebugOutput "  Hidden: $Hidden"
 Write-DebugOutput ""
 
-# Function to convert UTC time to local time
 function Convert-UTCToLocal {
     param([string]$utcDateStr)
-
-    # Parse the UTC date string
     $utcDate = [DateTime]::Parse($utcDateStr)
-
-    # Convert to local time
-    $localDate = $utcDate.ToLocalTime()
-
-    return $localDate
+    return $utcDate.ToLocalTime()
 }
 
-# Function to get the correct scheduled time based on DST
 function Get-ScheduledTimeWithDST {
-    param([DateTime]$scheduleDate)
+    param(
+        [DateTime]$scheduleDate,
+        [int]$minuteOffset = 0
+    )
 
-    # Check if the schedule date is in DST
     $isDST = [System.TimeZoneInfo]::Local.IsDaylightSavingTime($scheduleDate)
 
     if ($isDST) {
-        # During DST (EDT): 6 PM EST = 7 PM EDT = 19:00:00-04:00
-        $time = "19:00:00"
+        # During DST (EDT): 6 PM EST = 7 PM EDT
+        $hour = 19
         $offset = "-04:00"
     }
     else {
-        # During standard time (EST): 6 PM EST = 18:00:00-05:00
-        $time = "18:00:00"
+        # During standard time (EST): 6 PM EST
+        $hour = 18
         $offset = "-05:00"
     }
+
+    $time = "{0:D2}:{1:D2}:00" -f $hour, $minuteOffset
 
     return @{
         Time   = $time
@@ -70,40 +60,50 @@ function Get-ScheduledTimeWithDST {
     }
 }
 
-# Function to get next day in local time for a given date
 function Get-NextDayLocal {
     param([DateTime]$date)
-
-    # Add one day to the date
-    $nextDay = $date.AddDays(1)
-
-    # Return formatted date string
-    return $nextDay.ToString("yyyy-MM-dd")
+    return $date.AddDays(1).ToString("yyyy-MM-dd")
 }
 
-# Construct the full API URL with query parameters
 $fullApiUrl = "$ApiUrl`?page=0&size=$PageSize&sort=$SortField"
 
-# Fetch the contracts from the API
+# Check for API token
+$apiToken = $env:EGGCOOP_API_TOKEN
+if (-not $apiToken) {
+    Write-Output "ERROR: EGGCOOP_API_TOKEN environment variable not found."
+    Write-Output ""
+    Write-Output "The EggCoop API requires authentication. Please:"
+    Write-Output "  1. Login to https://eggcoop.org using Discord"
+    Write-Output "  2. Generate an API access token from your profile"
+    Write-Output "  3. Set the environment variable:"
+    Write-Output "     [Environment]::SetEnvironmentVariable('EGGCOOP_API_TOKEN', 'your-token-here', 'User')"
+    Write-Output ""
+    exit 1
+}
+
+$headers = @{
+    'Authorization' = "Bearer $apiToken"
+}
+
 try {
     Write-DebugOutput "Fetching contracts from $fullApiUrl..."
-    Write-Output "Fetching contracts v1.0.0 ..."
-    $response = Invoke-RestMethod -Uri $fullApiUrl -Method Get -TimeoutSec 30
+    Write-Host "Fetching contracts v1.2.0 (with auth) ..."
+    $response = Invoke-RestMethod -Uri $fullApiUrl -Method Get -Headers $headers -TimeoutSec 30
 }
 catch {
     Write-Output "Failed to fetch contracts from the API."
     Write-Output "Error: $($_.Exception.Message)"
     Write-Output ""
     Write-Output "This could be due to:"
+    Write-Output "  - Invalid or expired API token"
     Write-Output "  - Network connectivity issues"
     Write-Output "  - The eggcoop.org API being temporarily unavailable"
     Write-Output "  - Firewall or proxy restrictions"
     Write-Output ""
-    Write-Output "Please try again later or check your network connection."
+    Write-Output "Please check your EGGCOOP_API_TOKEN environment variable and try again."
     exit 1
 }
 
-# Get the contracts
 if ($null -eq $response._embedded -or $null -eq $response._embedded.contracts) {
     Write-Error "No contracts found in response"
     exit 1
@@ -111,73 +111,54 @@ if ($null -eq $response._embedded -or $null -eq $response._embedded.contracts) {
 
 $contracts = @($response._embedded.contracts)
 
-# If there are no contracts, exit
 if ($contracts.Count -eq 0) {
     Write-Output "No contracts found"
     exit
 }
 
-# For testing: Uncomment to simulate a specific date
-# $todayLocal = [DateTime]::ParseExact("2025-05-16", "yyyy-MM-dd", $null)
-# Write-Output "Simulating date (Local): $($todayLocal.ToString('yyyy-MM-dd'))"
-
-# Get today's date in local time
 $todayLocal = [DateTime]::Now.Date
 Write-DebugOutput "Today's date (Local): $($todayLocal.ToString('yyyy-MM-dd'))"
 
-# Process contracts to add local date information
 foreach ($contract in $contracts) {
-    # Extract date part from startTime
     $utcDateStr = $contract.startTime
-
-    # Convert to local DateTime
     $localDateTime = Convert-UTCToLocal -utcDateStr $utcDateStr
-
-    # Add local date information to contract
     $contract | Add-Member -MemberType NoteProperty -Name "localDate" -Value $localDateTime.Date -Force
     $contract | Add-Member -MemberType NoteProperty -Name "localDateString" -Value $localDateTime.ToString("yyyy-MM-dd") -Force
 }
 
-# Group contracts by local date
 $contractsByDate = $contracts | Group-Object -Property localDateString
-
-# Sort dates in descending order (most recent first)
 $sortedDates = $contractsByDate | Sort-Object -Property Name -Descending
 
-# Display available dates (only in debug mode)
 Write-DebugOutput "Available contract dates (Local time):"
 foreach ($dateGroup in $sortedDates) {
     Write-DebugOutput "  $($dateGroup.Name): $($dateGroup.Count) contract(s)"
 }
 
-# Filter contracts for today
 $todayDateString = $todayLocal.ToString("yyyy-MM-dd")
 $todayContracts = @($contracts | Where-Object { $_.localDateString -eq $todayDateString })
 Write-DebugOutput "Found $($todayContracts.Count) contracts for today (local time)"
 
-# If no contracts for today, use the most recent date with contracts
 if ($todayContracts.Count -eq 0 -and $sortedDates.Count -gt 0) {
     $mostRecentDate = $sortedDates[0].Name
     $todayContracts = @($contracts | Where-Object { $_.localDateString -eq $mostRecentDate })
 
-    # Calculate days difference between today and most recent contract date
     $mostRecentDateTime = [DateTime]::ParseExact($mostRecentDate, "yyyy-MM-dd", $null)
     $daysDifference = ($todayLocal - $mostRecentDateTime).Days
 
     if ($daysDifference -eq 1) {
-        Write-Output "Using contracts from yesterday ($mostRecentDate)"
+        Write-Host "Using contracts from yesterday ($mostRecentDate)"
     }
     else {
-        Write-Output "Using contracts from $daysDifference days ago ($mostRecentDate)"
+        Write-Host "Using contracts from $daysDifference days ago ($mostRecentDate)"
     }
 }
 
 # Generate the commands
+$commandLines = @()
+
 if ($todayContracts.Count -ge 1) {
-    # Sort contracts by startTime if there are multiple
     $sortedContracts = $todayContracts | Sort-Object -Property startTime
 
-    # Display the contracts we're using (only in debug mode)
     Write-DebugOutput "`nGenerating commands for the following contracts:"
     for ($i = 0; $i -lt [Math]::Min($sortedContracts.Count, 2); $i++) {
         $contract = $sortedContracts[$i]
@@ -185,30 +166,34 @@ if ($todayContracts.Count -ge 1) {
     }
     Write-DebugOutput ""
 
-    # Calculate next day based on first contract's local date
+    # First command (minute 0)
     $nextDay1 = Get-NextDayLocal -date $sortedContracts[0].localDate
-
-    # Get the scheduled date for DST calculation
     $scheduleDate1 = [DateTime]::ParseExact($nextDay1, "yyyy-MM-dd", $null)
-    $timeInfo1 = Get-ScheduledTimeWithDST -scheduleDate $scheduleDate1
+    $timeInfo1 = Get-ScheduledTimeWithDST -scheduleDate $scheduleDate1 -minuteOffset 0
 
-    # First command (always present if there are any contracts)
-    Write-Output "/checkminimums kevid:$($sortedContracts[0].contractIdentifier) formula:$Formula timeslot:$TimeSlot coopflag:$CoopFlag hidden:$Hidden delay_until:${nextDay1}T$($timeInfo1.Time)$($timeInfo1.Offset)"
+    $cmd1 = "/checkminimums kevid:$($sortedContracts[0].contractIdentifier) formula:$Formula timeslot:$TimeSlot coopflag:$CoopFlag hidden:$Hidden delay_until:${nextDay1}T$($timeInfo1.Time)$($timeInfo1.Offset)"
+    $commandLines += $cmd1
 
-    # Second command (only if there are at least 2 contracts)
+    # Second command (minute 1 - staggered by 1 minute)
     if ($sortedContracts.Count -ge 2) {
-        # Calculate next day based on second contract's local date
         $nextDay2 = Get-NextDayLocal -date $sortedContracts[1].localDate
-
-        # Get the scheduled date for DST calculation
         $scheduleDate2 = [DateTime]::ParseExact($nextDay2, "yyyy-MM-dd", $null)
-        $timeInfo2 = Get-ScheduledTimeWithDST -scheduleDate $scheduleDate2
+        $timeInfo2 = Get-ScheduledTimeWithDST -scheduleDate $scheduleDate2 -minuteOffset 1
 
-        Write-Output "/checkminimums kevid:$($sortedContracts[1].contractIdentifier) formula:$Formula timeslot:$TimeSlot coopflag:$CoopFlag hidden:$Hidden delay_until:${nextDay2}T$($timeInfo2.Time)$($timeInfo2.Offset)"
+        $cmd2 = "/checkminimums kevid:$($sortedContracts[1].contractIdentifier) formula:$Formula timeslot:$TimeSlot coopflag:$CoopFlag hidden:$Hidden delay_until:${nextDay2}T$($timeInfo2.Time)$($timeInfo2.Offset)"
+        $commandLines += $cmd2
     }
     elseif ($sortedContracts.Count -eq 1 -and $Debug) {
-        Write-Output "`nNote: Only one contract found for the selected date."
+        Write-Host "`nNote: Only one contract found for the selected date."
     }
+
+    # Output commands
+    $commandLines | ForEach-Object { Write-Output $_ }
+
+    # Copy to clipboard
+    $clipboardText = $commandLines -join "`n"
+    Set-Clipboard -Value $clipboardText
+    Write-Host "`n[Copied to clipboard]" -ForegroundColor Green
 }
 else {
     Write-Output "No contracts found for today or any recent date"
